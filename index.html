@@ -212,17 +212,70 @@ const GETV={threads:()=>threads,games:()=>games.filter(g=>g.url||g.ext),media:()
 const byAt=(a,b)=>(b.at||0)-(a.at||0);
 const SETV={threads:v=>threads=v.sort(byAt),games:v=>games=v.concat(games.filter(g=>!g.url&&!g.ext)),media:v=>media=v.sort(byAt),modq:v=>modq=v.sort(byAt),dms:v=>dms=v,art:v=>art=v.sort(byAt),walls:v=>walls=v.sort(byAt),profiles:v=>profiles=v,cfg:v=>{if(v[0])cfg={ban:v[0].ban||[],note:v[0].note||'',bu:v[0].bu||[]}}};
 const hx=n=>[...new TextEncoder().encode(n)].map(b=>b.toString(16).padStart(2,'0')).join('');
-const kid=(k,x)=>String(k=='profiles'?hx(x.name):x.id).replace(/[^\w.~:@+-]/g,'_');
-function push(k){if(!DB||!SH.includes(k))return;clearTimeout(TM[k]);TM[k]=setTimeout(async()=>{const col=DB.collection('ior_'+k),cur={},old=SNAP[k]||{};GETV[k]().forEach(x=>cur[kid(k,x)]=JSON.stringify(x));try{for(const i in cur)if(cur[i]!==old[i])await col.doc(i).set({j:cur[i]});for(const i in old)if(!(i in cur))await col.doc(i).delete();SNAP[k]=cur}catch(x){if(!warn){warn=true;toast('☁️ Sin permiso para guardar en la nube (solo local)')}}},600)}
+const kid=(k,x)=>String(k=='profiles'?hx(x.name):k=='users'?hx(x.email):x.id).replace(/[^\w.~:@+-]/g,'_');
+function push(k){SBW=Date.now();if(!DB||!SH.includes(k))return;clearTimeout(TM[k]);TM[k]=setTimeout(async()=>{const col=DB.collection('ior_'+k),cur={},old=SNAP[k]||{};GETV[k]().forEach(x=>cur[kid(k,x)]=JSON.stringify(x));try{for(const i in cur)if(cur[i]!==old[i])await col.doc(i).set({j:cur[i]});for(const i in old)if(!(i in cur))await col.doc(i).delete();SNAP[k]=cur}catch(x){if(!warn){warn=true;toast('☁️ Sin permiso para guardar en la nube (solo local)')}}},600)}
 function soft(){clearTimeout(RT);RT=setTimeout(()=>{if(S.tab=='chat'&&me&&document.getElementById('cm')){const c=document.getElementById('cm');c.innerHTML=chatHtml();c.scrollTop=c.scrollHeight;return}if(S.m&&document.getElementById('mp'))return;const a=document.activeElement;if(document.getElementById('ov')||S.tab=='art'||(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)))return;render()},300)}
 function sub(k){let first=1;DB.collection('ior_'+k).onSnapshot(s=>{if(s.metadata.fromCache&&s.empty)return;let rem=s.docs.map(d=>{try{return JSON.parse(d.data().j)}catch(x){return null}}).filter(Boolean),up=0;SNAP[k]=Object.fromEntries(rem.map(x=>[kid(k,x),JSON.stringify(x)]));if(first){first=0;const m=GETV[k]().filter(x=>!SNAP[k][kid(k,x)]);if(m.length){rem=rem.concat(m);up=1}}SETV[k](rem);try{localStorage.setItem('ior:'+k,JSON.stringify(GETV[k]()))}catch(x){}if(up)push(k);soft()},()=>{})}
 let AT;function pushAcct(){if(!acctDoc)return;clearTimeout(AT);AT=setTimeout(()=>acctDoc.set({j:JSON.stringify(users)}).catch(()=>{}),600)}
 function pub(u){if(!u)return;profiles=profiles.filter(x=>x.name!=u.name);profiles.push({name:u.name,country:u.country||'',...(u.avatar?{avatar:u.avatar}:{}),admin:!!u.admin,at:Date.now()});sv('profiles',profiles)}
 const toB64=async f=>{const u=new Uint8Array(await f.arrayBuffer());let s='';for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return new Blob([btoa(s)],{type:'text/plain'})};
 const fromB64=t=>{const b=atob(t),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return new Blob([u])};
-const cloudUp=async f=>{if(!AS||f.size>14e6)return{};try{const r=await AS.upload(await toB64(f),{type:'text/plain'});return{url:r.url,aid:r.id,b64:1}}catch(x){toast('☁️ Archivo solo local (límite 14 MB o sin permiso)');return{}}};
+const cloudUp=async f=>{if(!AS||f.size>ASLIM)return{};try{const r=await AS.upload(await toB64(f),{type:'text/plain'});return{url:r.url,aid:r.id,b64:1}}catch(x){toast('☁️ Archivo solo local (límite '+(ASLIM/1e6|0)+' MB o sin permiso)');return{}}};
 const getFile=async g=>{try{const b=await idbGet(g.id);if(b)return b}catch(x){}if(!g.url)throw new Error('no file');const r=await fetch(g.url);if(!r.ok)throw new Error('http');return g.b64?fromB64(await r.text()):r.blob()};
-(async()=>{try{DB=await claude.use('db');AS=await claude.use('assets');const us=await claude.use('user');UID=us&&us.id?await us.id():null;if(!DB){applyPub();return}SH.forEach(sub);if(UID){acctDoc=DB.collection('data/users/'+UID).doc('acct');acctDoc.onSnapshot(s=>{if(!s.exists){pushAcct();return}try{const r=JSON.parse(s.data().j);let ch=0;r.forEach(u=>{if(!users.some(x=>x.email==u.email)){users.push(u);ch=1}});if(ch)sv('users',users)}catch(x){}},()=>{})}toast('☁️ Guardado en la nube activo')}catch(x){applyPub()}})();
+// ---- Soporte GitHub Pages: Supabase (pega aquí tu URL y tu clave pública "anon/publishable") ----
+const SUPA={url:'',key:''};
+var SBW=0,ASLIM=14e6;
+async function initSupa(){
+const u=(SUPA.url||'').trim().replace(/\/+$/,''),k=(SUPA.key||'').trim();
+if(!u||!k)return false;
+const H={apikey:k};if(k.startsWith('eyJ'))H.Authorization='Bearer '+k;
+const R=u+'/rest/v1/ior_docs';
+const jf=async(url,o={})=>{const r=await fetch(url,{...o,headers:{...H,...(o.headers||{})}});if(!r.ok)throw new Error('http '+r.status);return r};
+try{await jf(R+'?select=id&limit=1')}catch(x){toast('☁️ No se pudo conectar a Supabase: revisa URL, clave y la tabla ior_docs');return false}
+const subs={};let pend=0,running=0;
+const wr=async fn=>{pend++;try{return await fn()}finally{pend--}};
+const up=rows=>jf(R+'?on_conflict=col,id',{method:'POST',headers:{'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(rows)});
+async function listAll(cs){const out=[];for(let o=0;;o+=1000){const r=await jf(R+'?select=col,id,u&col=in.('+cs.join(',')+')&order=col,id',{headers:{Range:o+'-'+(o+999),'Range-Unit':'items'}});const a=await r.json();out.push(...a);if(a.length<1000)break}return out}
+async function getDocs(c,ids){const res={};for(let i=0;i<ids.length;i+=40){const ch=ids.slice(i,i+40),q=encodeURIComponent('in.('+ch.map(x=>'"'+x+'"').join(',')+')');const r=await jf(R+'?select=id,j&col=eq.'+c+'&id='+q);(await r.json()).forEach(d=>res[d.id]=d.j)}return res}
+async function poll(force){
+ const cs=Object.keys(subs);if(!cs.length||running)return;
+ if(!force&&(pend||Date.now()-SBW<3000||document.hidden))return;
+ running=1;
+ try{
+  const rows=await listAll(cs);
+  if(pend||Date.now()-SBW<3000)return;
+  for(const c of cs){const s=subs[c],rem={};
+   rows.filter(r=>r.col==c).forEach(r=>rem[r.id]=r.u);
+   const ch=Object.keys(rem).filter(i=>s.ids[i]!==rem[i]),gone=Object.keys(s.ids).filter(i=>!(i in rem));
+   if(s.ready&&!ch.length&&!gone.length)continue;
+   const got=ch.length?await getDocs(c,ch):{};
+   ch.forEach(i=>{if(i in got){s.docs[i]=got[i];s.ids[i]=rem[i]}});
+   gone.forEach(i=>{delete s.ids[i];delete s.docs[i]});
+   s.ready=1;
+   s.cb({metadata:{fromCache:false},empty:!Object.keys(s.docs).length,docs:Object.entries(s.docs).map(([id,j])=>({data:()=>({j})}))});
+  }
+ }finally{running=0}
+}
+DB={collection:c=>({
+ doc:id=>({
+  set:d=>wr(async()=>{const t=Date.now();await up([{col:c,id,j:d.j,u:t}]);const s=subs[c];if(s){s.ids[id]=t;s.docs[id]=d.j}}),
+  delete:()=>wr(async()=>{await jf(R+'?col=eq.'+c+'&id=eq.'+encodeURIComponent(id),{method:'DELETE'});const s=subs[c];if(s){delete s.ids[id];delete s.docs[id]}})}),
+ onSnapshot:cb=>{subs[c]={cb,ids:{},docs:{},ready:0};setTimeout(()=>poll(1).catch(()=>{}),0)}})};
+ASLIM=37e6;
+const EXT={'text/plain':'.txt','image/webp':'.webp','image/jpeg':'.jpg','image/png':'.png'};
+AS={upload:async(b,o)=>{const ty=(o&&o.type)||b.type||'application/octet-stream',id=Date.now().toString(36)+Math.random().toString(36).slice(2,8)+(EXT[ty]||'');await jf(u+'/storage/v1/object/ior/'+id,{method:'POST',headers:{'Content-Type':ty,'x-upsert':'true'},body:b});return{url:u+'/storage/v1/object/public/ior/'+id,id}},
+ delete:async id=>{await jf(u+'/storage/v1/object/ior/'+id,{method:'DELETE'})}};
+SH.push('users');GETV.users=()=>users;SETV.users=v=>{users=v};
+SH.forEach(sub);
+setInterval(()=>poll().catch(()=>{}),5000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll(1).catch(()=>{})});
+const sid='s'+Math.random().toString(36).slice(2,10);
+const beat=async()=>{try{await up([{col:'presence',id:sid,j:'{}',u:Date.now()}]);const r=await jf(R+'?select=id&col=eq.presence&u=gt.'+(Date.now()-70000));nOn=(await r.json()).length;upd();if(Math.random()<.1)jf(R+'?col=eq.presence&u=lt.'+(Date.now()-600000),{method:'DELETE'}).catch(()=>{})}catch(x){}};
+beat();setInterval(()=>{if(!document.hidden)beat()},30000);
+addEventListener('pagehide',()=>{try{fetch(R+'?col=eq.presence&id=eq.'+sid,{method:'DELETE',headers:H,keepalive:true})}catch(x){}});
+toast('☁️ Conectado a Supabase');
+return true}
+(async()=>{try{if(typeof claude==='undefined'||!claude.use){if(await initSupa())return;throw 0}DB=await claude.use('db');AS=await claude.use('assets');const us=await claude.use('user');UID=us&&us.id?await us.id():null;if(!DB){applyPub();return}SH.forEach(sub);if(UID){acctDoc=DB.collection('data/users/'+UID).doc('acct');acctDoc.onSnapshot(s=>{if(!s.exists){pushAcct();return}try{const r=JSON.parse(s.data().j);let ch=0;r.forEach(u=>{if(!users.some(x=>x.email==u.email)){users.push(u);ch=1}});if(ch)sv('users',users)}catch(x){}},()=>{})}toast('☁️ Guardado en la nube activo')}catch(x){applyPub()}})();
 // ---- bot de moderación: marca y pregunta a un admin; nunca elimina ni banea solo ----
 const botWhy=x=>{x=String(x||'');if(bad(x))return 'palabra prohibida';if((x.match(/https?:\/\//g)||[]).length>2)return 'posible spam (muchos links)';if(/(.)\1{11,}/.test(x))return 'texto repetitivo';if(x.length>25&&/[A-ZÁÉÍÓÚÑ]{20}/.test(x)&&x===x.toUpperCase())return 'MAYÚSCULAS excesivas';return ''};
 function modGate(kind,text,obj,extra){const w=botWhy(text);if(!w)return false;const c={id:'c'+Date.now()+Math.random().toString(36).slice(2,5),at:Date.now(),kind,by:me.name,text:String(text).slice(0,400),why:w,st:'pending',...extra};modq.unshift(c);sv('modq',modq);obj.fl=c.id;toast('🤖 Tu contenido fue enviado a revisión de un admin');return true}
