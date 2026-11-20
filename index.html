@@ -561,4 +561,90 @@ else if(a=='ytsearch'){el.disabled=true;await ytRun(s,val('yts'+s).trim());el.di
 else if(a=='ytrefresh'){try{localStorage.removeItem('ior:yt_ts')}catch(x){}YB.a=0;ytAuto('mov')}
 else if(a=='ytadd'){const u=val('ytu'+s).trim(),v=u.match(/(?:[?&]v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/),l=u.match(/[?&]list=([\w-]+)/);if(!v&&!l)return toast('Link de YouTube no válido');let ti='YouTube',th='';try{const j=await(await fetch('https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(u))).json();ti=j.title||ti;th=j.thumbnail_url||''}catch(x){}if(bad(ti))return toast(t('blocked'));if(!th&&v)th=`https://i.ytimg.com/vi/${v[1]}/mqdefault.jpg`;ytLd(s).unshift(l&&!(v&&!/playlist/.test(u))?{title:ti,thumb:th,pl:l[1],m:1,parts:[]}:{title:ti,thumb:th,m:1,parts:[{id:v[1],title:ti,n:0}]});ytSv(s);ytFill(s)}});
 </script>
+<script id="fest-module">
+/* IOR Festividades: efectos por fecha/país, logros, recompensas y mascotas originales */
+(function(){
+var P=new URLSearchParams(location.search).get('fest'),D=new Date(),M=D.getMonth()+1,Dd=D.getDate();
+var CC=(function(){try{var t=Intl.DateTimeFormat().resolvedOptions().timeZone||'',l=((navigator.language||'').split('-')[1]||'').toUpperCase();if(/Guayaquil|Galapagos/.test(t))return'EC';if(/Mexico|Cancun|Tijuana/.test(t))return'MX';if(/Bogota/.test(t))return'CO';if(/Madrid/.test(t))return'ES';if(/Lima/.test(t))return'PE';if(/Argentina/.test(t))return'AR';return l}catch(e){return''}})();
+/* r=[mes ini,dia ini,mes fin,dia fin]; cc=países (vacío = global); col=colores; fx=efecto */
+var EV=[
+{id:'navidad',name:'Navidad',r:[12,1,12,26],fx:'snow',col:['#fff','#cfeaff'],pet:'copito',ac:'#d62d2d'},
+{id:'halloween',name:'Halloween',r:[10,1,10,31],fx:'spiders',col:['#ff7a00','#2b0a3d'],pet:'aranita',ac:'#ff7a00'},
+{id:'muertos',name:'Día de Muertos / Difuntos',r:[10,28,11,3],cc:['MX','EC','PE','BO','GT'],fx:'petals',col:['#ff9d1c','#ffd23f'],pet:'calaverita',ac:'#ffd23f'},
+{id:'valentin',name:'San Valentín',r:[2,1,2,14],fx:'hearts',col:['#ff4d79','#ff9bb5'],pet:'cupidito',ac:'#ff4d79'},
+{id:'anionuevo',name:'Año Nuevo',r:[12,27,1,3],fx:'confetti',col:['#ffd700','#fff','#5ad1ff','#ff5ac8'],pet:'chispa',ac:'#ffd700'},
+{id:'ec_independencia',name:'Primer Grito de Independencia',r:[8,3,8,10],cc:['EC'],fx:'confetti',col:['#ffd100','#0033a0','#ef3340'],pet:'inti',ac:'#0033a0'},
+{id:'mx_independencia',name:'Fiestas Patrias',r:[9,10,9,16],cc:['MX'],fx:'confetti',col:['#006847','#fff','#ce1126'],pet:'nopalito',ac:'#ce1126'},
+{id:'us_july4',name:'4 de Julio',r:[7,1,7,4],cc:['US'],fx:'confetti',col:['#b22234','#fff','#3c3b6e'],pet:'chispa',ac:'#3c3b6e'},
+{id:'co_independencia',name:'Independencia de Colombia',r:[7,15,7,20],cc:['CO'],fx:'confetti',col:['#fcd116','#003893','#ce1126'],pet:'inti',ac:'#003893'},
+{id:'es_hispanidad',name:'Fiesta Nacional',r:[10,8,10,12],cc:['ES'],fx:'confetti',col:['#aa151b','#f1bf00'],pet:'chispa',ac:'#aa151b'},
+{id:'pe_patrias',name:'Fiestas Patrias',r:[7,24,7,29],cc:['PE'],fx:'confetti',col:['#d91023','#fff'],pet:'inti',ac:'#d91023'},
+{id:'ar_mayo',name:'Revolución de Mayo',r:[5,20,5,25],cc:['AR'],fx:'confetti',col:['#74acdf','#fff','#f6b40e'],pet:'inti',ac:'#74acdf'}
+];
+/* mascotas ORIGINALES: c=color, e=orejas, t=frases */
+var PETS={
+copito:{n:'Copito',c:'#e8f6ff',e:'round',t:['¡Brr! Qué frío… ¡me encanta!','Hagamos un muñeco de nieve virtual.','¡Feliz Navidad, {u}!']},
+aranita:{n:'Arañita',c:'#7a3fb0',e:'none',t:['No muerdo… mucho.','Teje, teje: ¡más puntos!','Buuu, {u}. ¿Te asusté?']},
+calaverita:{n:'Calaverita',c:'#f4efe0',e:'none',t:['Las flores guían a los recuerdos.','Pan de muerto para todos.','Hola, {u}, ¿jugamos?']},
+cupidito:{n:'Cupidito',c:'#ff9bb5',e:'heart',t:['¡Flechazo directo!','Hoy el amor es en 8 bits.','{u}, ¡eres de mis favoritos!']},
+chispa:{n:'Chispa',c:'#ffd24a',e:'spike',t:['¡3, 2, 1… fuegos artificiales!','Brilla, {u}, brilla.','Más puntos, más chispas.']},
+inti:{n:'Inti',c:'#ffb02e',e:'round',t:['¡Viva la patria, {u}!','Sol de mi tierra, ¡a jugar!','Aquí celebramos juntos.']},
+nopalito:{n:'Nopalito',c:'#4caf50',e:'spike',t:['¡Viva México!','Con picante todo mejora.','¡Órale, {u}!']}
+};
+function act(){var o=[];EV.forEach(function(e){if(P){if(e.id==P||e.id.indexOf(P)==0)o.push(e);return}
+ if(e.cc&&e.cc.indexOf(CC)<0)return;var r=e.r,a=r[0]*100+r[1],b=r[2]*100+r[3],n=M*100+Dd;if(a<=b?(n>=a&&n<=b):(n>=a||n<=b))o.push(e)});return o}
+var AC=act(),EVN=AC[0];
+if(!EVN&&!P)return;
+/* ---------- progreso por usuario ---------- */
+var K='ior:fest:'+(function(){try{return JSON.parse(localStorage.getItem('ior:me')).name}catch(e){return'guest'}})();
+var S=(function(){try{return JSON.parse(localStorage.getItem(K))||{}}catch(e){return{}}})();S.pts=S.pts||{};S.log=S.log||{};S.own=S.own||[];S.mus=S.mus||0;
+function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}
+var QS=[['visit','Visitar la web en la fiesta',10,1],['play','Jugar 3 juegos',30,3],['like','Dar 3 likes',20,3],['post','Publicar o comentar 2 veces',30,2]];
+var RW=[[50,'Marco festivo en tu insignia'],[100,'Mascota de la fiesta'],[200,'Música festiva'],[300,'Rango: Héroe de la fiesta']];
+function pts(){return S.pts[EVN.id]||0}
+function add(q){var k=EVN.id+':'+q[0]+':'+D.toDateString();S.log[k]=(S.log[k]||0)+1;if(S.log[k]==q[3]){var o=pts();S.pts[EVN.id]=o+q[2];toast('🎉 Logro: '+q[1]+' (+'+q[2]+')');chk(o,pts())}save();ui()}
+function chk(o,n){RW.forEach(function(r){if(o<r[0]&&n>=r[0]){toast('🎁 Recompensa: '+r[1]);if(r[0]==100&&S.own.indexOf(EVN.pet)<0){S.own.push(EVN.pet);S.pet=EVN.pet;pet()}}})}
+function toast(m){try{window.toast(m)}catch(e){}}
+var MAP={play:'play',like:'like',vlike:'like',post:'post',pubart:'post',vcom:'post',reply:'post'};
+document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('[data-a]');if(!a)return;var q=MAP[a.dataset.a];if(!q)return;QS.forEach(function(x){if(x[0]==q)add(x)})},true);
+/* ---------- efectos ---------- */
+var rm=matchMedia('(prefers-reduced-motion:reduce)').matches,cv=document.createElement('canvas'),cx=cv.getContext('2d'),W,H,ps=[];
+cv.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:9990';document.body.appendChild(cv);
+function rs(){W=cv.width=innerWidth;H=cv.height=innerHeight}rs();addEventListener('resize',rs);
+var N=rm?0:EVN.fx=='spiders'?10:70;for(var i=0;i<N;i++)ps.push({x:Math.random()*W,y:Math.random()*H,s:2+Math.random()*4,v:.5+Math.random()*1.5,p:Math.random()*6,c:EVN.col[i%EVN.col.length],l:60+Math.random()*H*.5});
+function spider(p,t){var y=p.l+Math.sin(t/900+p.p)*40;cx.strokeStyle='rgba(255,255,255,.5)';cx.beginPath();cx.moveTo(p.x,0);cx.lineTo(p.x,y);cx.stroke();cx.fillStyle='#1a0b26';cx.beginPath();cx.arc(p.x,y,9,0,7);cx.fill();cx.strokeStyle='#1a0b26';cx.lineWidth=2;for(var k=-1;k<=1;k+=2)for(var j=0;j<4;j++){cx.beginPath();cx.moveTo(p.x,y);cx.lineTo(p.x+k*(12+j*3),y+(j-1.5)*6);cx.stroke()}cx.lineWidth=1;cx.fillStyle='#f33';cx.fillRect(p.x-4,y-3,2,2);cx.fillRect(p.x+2,y-3,2,2)}
+function fx(t){cx.clearRect(0,0,W,H);ps.forEach(function(p){var f=EVN.fx;if(f=='spiders')return spider(p,t);p.y+=p.v*(f=='hearts'?-1:1);p.x+=Math.sin(t/700+p.p)*.6;if(p.y>H+10)p.y=-10;if(p.y<-20)p.y=H+10;cx.fillStyle=p.c;if(f=='snow'){cx.globalAlpha=.85;cx.beginPath();cx.arc(p.x,p.y,p.s*.6,0,7);cx.fill()}else if(f=='hearts'){cx.globalAlpha=.8;cx.font=(p.s*5)+'px serif';cx.fillText('❤',p.x,p.y)}else if(f=='petals'){cx.globalAlpha=.85;cx.beginPath();cx.ellipse(p.x,p.y,p.s*1.2,p.s*.7,p.p+t/500,0,7);cx.fill()}else{cx.globalAlpha=.9;cx.save();cx.translate(p.x,p.y);cx.rotate(p.p+t/300);cx.fillRect(-p.s,-p.s/2,p.s*2,p.s);cx.restore()}cx.globalAlpha=1});requestAnimationFrame(fx)}
+if(!rm)requestAnimationFrame(fx);
+/* ---------- mascota con look 3D pre-renderizado ---------- */
+var pc=document.createElement('canvas'),px=pc.getContext('2d'),bub=document.createElement('div'),pt={x:80,d:1,v:.5,sp:null};
+pc.width=pc.height=64;pc.style.cssText='position:fixed;bottom:6px;left:0;width:96px;height:96px;z-index:9992;cursor:pointer;image-rendering:auto;filter:drop-shadow(0 6px 4px rgba(0,0,0,.3))';
+bub.style.cssText='position:fixed;bottom:104px;z-index:9993;background:#fff;color:#0b2a4a;border-radius:12px;padding:6px 10px;font:14px system-ui;box-shadow:0 4px 14px rgba(0,0,0,.25);display:none;max-width:200px';
+function sph(x,y,r,c){var g=px.createRadialGradient(x-r*.35,y-r*.4,r*.1,x,y,r);g.addColorStop(0,'#fff');g.addColorStop(.25,c);g.addColorStop(1,'rgba(0,0,0,.55)');px.fillStyle=g;px.beginPath();px.arc(x,y,r,0,7);px.fill();px.globalCompositeOperation='multiply';px.fillStyle=c;px.beginPath();px.arc(x,y,r,0,7);px.fill();px.globalCompositeOperation='source-over'}
+function draw(w){px.clearRect(0,0,64,64);var d=PETS[S.pet],b=Math.abs(Math.sin(w/6))*3,o=EV.filter(function(e){return e.pet==S.pet})[0]||EVN;
+px.fillStyle='rgba(0,0,0,.25)';px.beginPath();px.ellipse(32,60,16,4,0,0,7);px.fill();
+if(d.e=='round'){sph(19,22-b,6,d.c);sph(45,22-b,6,d.c)}if(d.e=='heart'){sph(20,22-b,6,'#ff4d79');sph(44,22-b,6,'#ff4d79')}if(d.e=='spike'){px.fillStyle=d.c;[[22,18],[32,13],[42,18]].forEach(function(s){px.beginPath();px.moveTo(s[0]-5,28-b);px.lineTo(s[0],s[1]-b);px.lineTo(s[0]+5,28-b);px.fill()})}
+sph(32,40-b,19,d.c);px.fillStyle='#111';px.beginPath();px.arc(25,38-b,3,0,7);px.arc(39,38-b,3,0,7);px.fill();px.fillStyle='#fff';px.fillRect(24,36-b,2,2);px.fillRect(38,36-b,2,2);
+px.strokeStyle='#111';px.lineWidth=1.5;px.beginPath();px.arc(32,44-b,4,.1,3);px.stroke();
+px.fillStyle=o.ac;px.beginPath();px.moveTo(18,26-b);px.lineTo(46,26-b);px.lineTo(32,10-b);px.fill();px.fillStyle='#fff';px.beginPath();px.arc(32,10-b,3,0,7);px.fill();
+px.fillStyle=d.c;[-1,1].forEach(function(s){sph(32+s*12,56-(s*Math.sin(w/6)>0?2:0),5,d.c)})}
+function say(m){var d=PETS[S.pet],u=(function(){try{return JSON.parse(localStorage.getItem('ior:me')).name}catch(e){return'amigo'}})();bub.textContent=m||d.t[Math.random()*d.t.length|0].replace('{u}',u);bub.style.display='block';clearTimeout(say.t);say.t=setTimeout(function(){bub.style.display='none'},4000)}
+function pet(){if(!S.pet||S.own.indexOf(S.pet)<0)return;if(!pc.parentNode){document.body.appendChild(pc);document.body.appendChild(bub);pc.onclick=function(){say()};setInterval(function(){say()},30000);requestAnimationFrame(wk)}}
+var w0=0;function wk(){w0++;pt.x+=pt.d*pt.v;if(pt.x>innerWidth-100)pt.d=-1;if(pt.x<0)pt.d=1;pc.style.transform='translateX('+pt.x+'px) scaleX('+pt.d+')';bub.style.left=Math.min(pt.x,innerWidth-210)+'px';draw(w0/2);requestAnimationFrame(wk)}
+/* ---------- música festiva (WebAudio, melodía original) ---------- */
+var AU,mt;function music(on){clearInterval(mt);if(!on)return;AU=AU||new(window.AudioContext||window.webkitAudioContext)();var sc=EVN.fx=='spiders'?[0,2,3,5,7,8,11]:[0,2,4,7,9],i=0;mt=setInterval(function(){var o=AU.createOscillator(),g=AU.createGain();o.type='triangle';o.frequency.value=262*Math.pow(2,sc[(i*3+(i>>2))%sc.length]/12);g.gain.setValueAtTime(.06,AU.currentTime);g.gain.exponentialRampToValueAtTime(.001,AU.currentTime+.4);o.connect(g);g.connect(AU.destination);o.start();o.stop(AU.currentTime+.4);i++},320)}
+/* ---------- panel ---------- */
+var bt=document.createElement('button'),pn=document.createElement('div');
+bt.textContent='🎉';bt.title=EVN.name;bt.style.cssText='position:fixed;left:12px;bottom:12px;z-index:9995;width:48px;height:48px;border-radius:50%;border:2px solid var(--edge,#fff);background:var(--glass2,rgba(255,255,255,.85));font-size:24px;cursor:pointer;box-shadow:var(--shadow,0 4px 14px rgba(0,0,0,.3));margin-bottom:env(safe-area-inset-bottom,0px)';
+pn.style.cssText='position:fixed;left:12px;bottom:70px;z-index:9996;width:min(320px,92vw);max-height:70vh;overflow:auto;background:var(--glass2,rgba(255,255,255,.92));color:var(--ink,#0b2a4a);border:2px solid var(--edge,#fff);border-radius:16px;padding:12px;box-shadow:var(--shadow,0 8px 28px rgba(0,0,0,.3));display:none;font:14px system-ui';
+bt.onclick=function(){pn.style.display=pn.style.display=='none'?'block':'none';ui()};document.body.appendChild(bt);document.body.appendChild(pn);
+function ui(){var p=pts(),nx=RW.filter(function(r){return p<r[0]})[0],h='<b style="font-size:16px">'+EVN.name+'</b>'+(AC.length>1?'<br><small>Más eventos activos: '+AC.slice(1).map(function(e){return e.name}).join(', ')+'</small>':'')+'<br>Puntos: <b>'+p+'</b>'+(nx?' / '+nx[0]:'')+'<div style="height:8px;background:rgba(0,0,0,.15);border-radius:4px;margin:6px 0"><div style="height:8px;border-radius:4px;background:'+EVN.ac+';width:'+Math.min(100,p/(nx?nx[0]:p||1)*100)+'%"></div></div><b>Logros de hoy</b><br>';
+QS.forEach(function(q){var c=Math.min(S.log[EVN.id+':'+q[0]+':'+D.toDateString()]||0,q[3]);h+=(c>=q[3]?'✅ ':'⬜ ')+q[1]+' ('+c+'/'+q[3]+') +'+q[2]+'<br>'});
+h+='<b>Recompensas</b><br>';RW.forEach(function(r){h+=(p>=r[0]?'🎁 ':'🔒 ')+r[0]+' pts: '+r[1]+'<br>'});
+if(p>=50)h+='<br>Insignia: <span style="border:3px solid '+EVN.ac+';border-radius:8px;padding:1px 6px">'+(p>=300?'Héroe de ':'')+EVN.name+'</span>';
+if(S.own.length){h+='<br><br><b>Mascotas</b> <select id="festpet">'+S.own.map(function(k){return'<option value="'+k+'"'+(k==S.pet?' selected':'')+'>'+PETS[k].n+'</option>'}).join('')+'</select>'}
+if(p>=200)h+='<br><label><input type="checkbox" id="festmus"'+(S.mus?' checked':'')+'> Música festiva</label>';
+pn.innerHTML=h;var s=pn.querySelector('#festpet');if(s)s.onchange=function(){S.pet=s.value;save()};var m=pn.querySelector('#festmus');if(m)m.onchange=function(){S.mus=m.checked?1:0;save();music(S.mus)}}
+add(QS[0]);pet();if(S.mus&&pts()>=200)document.addEventListener('click',function f(){music(1);document.removeEventListener('click',f)});
+})();
+</script>
 </body></html>
