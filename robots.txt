@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://erickprime12.github.io/THe-IOR---The-Internet-of-Things/sitemap.xml
