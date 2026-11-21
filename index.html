@@ -901,12 +901,18 @@ function signature(l){ /* huella del primer fotograma de un nivel: 8x7 celdas, 4
   s+=Math.min(3,((t/c)/64)|0)}
  return s}
 const ham=(a,b)=>{let d=0;for(let i=0;i<a.length;i++)if(a[i]!=b[i])d++;return d};
+/* vista de lo que hay DELANTE del personaje: 24x6 celdas de 4 tonos. Sirve para reconocer obstáculos parecidos en cualquier nivel */
+function ahead(l){let s='';for(let r=0;r<6;r++){const y0=28+r*13;for(let c=0;c<24;c++){const x0=40+c*3;let t=0,n=0;for(let y=y0;y<y0+13;y+=3)for(let x=x0;x<x0+3;x++){t+=l[y*W+x];n++}s+=Math.min(3,((t/n)/64)|0)}}return s}
+function xedge(s){let n=0;for(let r=0;r<6;r++)for(let c=0;c<23;c++)if(s.charCodeAt(r*24+c)!==s.charCodeAt(r*24+c+1))n++;return n}
+function pdist(a,b){let best=999;for(let sh=-1;sh<=1;sh++){let d=0;for(let r=0;r<6;r++){const o=r*24;for(let c=1;c<23;c++)if(a.charCodeAt(o+c)!==b.charCodeAt(o+c+sh))d++}if(d<best)best=d}return best}
+const better=(q,g,oq,og)=>q>oq||(q==oq&&(g||0)>(og||0)*1.15+.5);
 
 function Brain(store,opt){
  this.store=store&&store.lv?store:{lv:[]};this.opt=opt||{};this.style=this.opt.style||'run';
  this.prev=null;this.mode='settle';this.settleAt=0;this.X=0;this.lastB=-1;this.maxB=0;this.fired={};this.trail=[];
  this.macro=null;this.lv=null;this.lifeT=0;this.lastMove=0;this.rec=0;this.stallDone=false;this.lives=0;this.msg='';this.dirty=false;
  this.seen=false;this.aa=0;this.m={act:0,bright:0,sx:0};this.recT=0;this.pend=null;this.stallAt=[];
+ this.store.pat=this.store.pat||[];this.evs=[];this.dm=null;this.pa=0;this.patCd=0;this.usedPat=[];this.learnN=0;this.sigC=null;this.lastSay=0;this.endEvs=[];this.endPat=[];this.endT=0;this.endL=0;
 }
 const P=Brain.prototype;
 P.lvl=function(sig){
@@ -923,7 +929,7 @@ P.addTrig=function(near){
  const k=this.freeK(near);if(k<0)return false;t[k]=[this.pickAct(0,false),0,0];return true};
 /* un truco = «al llegar a la casilla k, haz la acción a». Si falla, se cambia de acción y/o se acerca al punto donde murió. */
 P.mutate=function(k){
- const t=this.lv.trig,e=t[k];if(!e)return;e[2]++;e[1]=0;
+ const t=this.lv.trig,e=t[k];if(!e)return;if(e[3]){e[4]=(e[4]||1)-1;e[1]=0;if(e[4]<=0)delete t[k];return}e[2]++;e[1]=0;
  if(e[2]>=5){delete t[k];this.addTrig(this.maxB-1-rnd(5));return}
  e[0]=this.pickAct(e[0],e[2]>=3);
  if(Math.random()<.7){delete t[k];const k2=this.freeK(this.maxB-1-rnd(4));if(k2>0)t[k2]=[e[0],0,e[2]];else t[k]=e}};
@@ -940,18 +946,60 @@ P.afterDeath=function(){
  for(const k in t)if(+k<=mb-12&&!this.stalledNear(+k))t[k][1]=1;
  if(mb>this.lv.best)this.lv.best=mb};
 P.confirmAll=function(){for(const k in this.lv.trig)if(this.fired[k]&&!this.stalledNear(+k))this.lv.trig[k][1]=1};
-P.endLife=function(t){this.endB=this.maxB;this.endFired=this.fired;this.wasStalled=this.stallDone};
+P.endLife=function(t){this.endB=this.maxB;this.endFired=this.fired;this.wasStalled=this.stallDone;this.endEvs=this.evs;this.evs=[];this.dm=null;this.endPat=this.usedPat;this.usedPat=[];this.endT=t;this.endL=this.lifeT};
+P.sigNow=function(l){return this.sigC||(this.sigC=ahead(l))};
+P.note=function(m){const n=performance.now();if(n-this.lastSay>4500){this.lastSay=n;this.msg=m}};
+/* aprende UNA jugada vista del jugador: la guarda por posición en este nivel y como patrón visual general (sirve en niveles nuevos). Solo se queda con la mejor. */
+P.learnEv=function(ev,lv,q){
+ const t=lv.trig,k=ev.k,a=ev.a;let n=0,key=null;
+ for(const d of[0,-1,1])if(t[k+d]){key=k+d;break}
+ const old=key!=null?t[key]:null;
+ if(!old||!old[3]||better(q,ev.g,old[4],old[5])){if(key!=null)delete t[key];const e=[0,1,0,a,q,ev.g||0];t[k]=e;ev.te=e;n++}
+ else if(old[3].d==a.d&&Math.abs((old[3].j||0)-a.j)<160)old[4]=Math.min(8,old[4]+.5);
+ if(xedge(ev.sig)>=4){const PL=this.store.pat;let np=null,bd=7;
+  for(const p of PL){const d=pdist(ev.sig,p.s);if(d<bd){bd=d;np=p}}
+  if(np){if(np.a.d==a.d&&Math.abs(np.a.j-a.j)<160){np.q=Math.min(8,np.q+.5);np.a={d:a.d,j:Math.round((np.a.j+a.j)/2),n:Math.round((np.a.n+a.n)/2)};ev.pp=np}
+   else if(better(q,ev.g,np.q,np.g)){np.s=ev.sig;np.a=a;np.q=q;np.g=ev.g||0;np.f=0;np.thr=18;ev.pp=np;n++}}
+  else{const p={s:ev.sig,a,q,g:ev.g||0,f:0,thr:18};PL.push(p);ev.pp=p;n++;if(PL.length>80){let w=0;for(let i=1;i<PL.length;i++)if(PL[i].q<PL[w].q)w=i;PL.splice(w,1)}}}
+ if(n){this.dirty=true;this.learnN++;this.note(this.learnN==1?'Te estoy mirando jugar y aprendo 👀':'Anoté lo que hiciste ✍️')}};
+/* al acabar una vida: si pasó el nivel, lo que el jugador hizo vale más (y más aún si fue rápido); si murió, lo cercano a la muerte se descarta */
+P.learnEnd=function(clear){
+ const lv=this.lv,dur=this.endT-this.endL,mb=this.endB||0;let fast=false;
+ if(clear&&(!lv.bestT||dur<lv.bestT)){lv.bestT=dur;fast=true}
+ const bonus=clear?(fast?3:2):0;
+ for(const ev of this.endEvs||[]){
+  if(!ev.done){if(!clear)continue;ev.done=1;this.learnEv(ev,lv,2+bonus)}
+  else{if(ev.te)ev.te[4]=Math.min(8,ev.te[4]+bonus);if(ev.pp)ev.pp.q=Math.min(8,ev.pp.q+bonus)}}
+ const PL=this.store.pat;
+ for(const u of this.endPat||[]){const p=u.p;
+  if(clear)p.q=Math.min(8,p.q+1);
+  else if(this.endT-u.t<2200||mb-u.b<=10){p.f++;p.q-=1;p.thr=Math.max(10,p.thr-3);if(p.q<=0||p.f>=3){const i=PL.indexOf(p);if(i>=0)PL.splice(i,1)}}
+  else{p.q=Math.min(8,p.q+.5);p.thr=Math.min(26,p.thr+1)}}
+ this.dirty=true};
+/* observa al jugador 1 en tiempo real: cada salto/acción suya es una jugada candidata; se aprende cuando sobrevive 8 casillas */
+P.watch=function(t,b,l,p1){
+ if(p1){const A=!!p1.A;
+  if(A&&!this.pa)this.dm={t0:t,k:b,sig:this.sigNow(l),rf:0,lf:0,n:0};
+  const d=this.dm;
+  if(d){d.n++;if(p1.R)d.rf++;else if(p1.L)d.lf++;
+   if((!A&&this.pa)||t-d.t0>1200){const j=Math.min(900,t-d.t0);
+    if(this.evs.length<60)this.evs.push({k:d.k,t:d.t0,sig:d.sig,a:{d:d.rf>d.n*.35?'R':d.lf>d.n*.35?'L':'',j:Math.max(j,90),n:Math.max(j+220,320)},done:0,g:null});
+    this.dm=null}}
+  this.pa=A}
+ for(const ev of this.evs){
+  if(ev.g==null&&t>=ev.t+700){ev.g=b-ev.k;if(ev.te)ev.te[5]=ev.g;if(ev.pp)ev.pp.g=ev.g}
+  if(!ev.done&&b>=ev.k+8){ev.done=1;this.learnEv(ev,this.lv,2)}}};
 P.enterLevel=function(l,t){
  const nl=this.lvl(signature(l)),first=!this.lv;
  if(!first&&this.endB!=null){
   if(nl===this.lv){ /* mismo nivel → murió */
    this.lives++;this.lv.tries++;this.maxB=this.endB;this.fired=this.endFired||{};
-   if(!this.wasStalled)this.afterDeath();
+   this.learnEnd(false);if(!this.wasStalled)this.afterDeath();
    this.say('Intento '+(this.lv.tries+1)+': ya sé dónde fallé 🧠')}
-  else{this.maxB=this.endB;this.fired=this.endFired||{};this.confirmAll();this.lv.clear++;this.say('¡Nivel superado! 🎉')}
+  else{this.maxB=this.endB;this.fired=this.endFired||{};this.confirmAll();this.learnEnd(true);this.lv.clear++;this.say(this.learnN?'¡Nivel superado! 🎉 Guardé lo que mejor funcionó':'¡Nivel superado! 🎉')}
  }
- this.lv=nl;this.X=0;this.maxB=0;this.lastB=-1;this.fired={};this.trail=[];this.macro=null;this.pend=null;this.stallAt=[];this.stallDone=false;this.lifeT=t;this.lastMove=t;this.endB=null;this.dirty=true};
-P.makeMacro=function(a,t){const A=ACTS[a];return{a,dir:A[1],jEnd:t+A[2],end:t+A[3]}};
+ this.lv=nl;this.X=0;this.maxB=0;this.lastB=-1;this.fired={};this.trail=[];this.macro=null;this.pend=null;this.stallAt=[];this.stallDone=false;this.lifeT=t;this.lastMove=t;this.endB=null;this.evs=[];this.dm=null;this.usedPat=[];this.dirty=true};
+P.makeMacro=function(a,t,cu){if(cu)return{a:9,dir:cu.d,jEnd:t+cu.j,end:t+cu.n};const A=ACTS[a];return{a,dir:A[1],jEnd:t+A[2],end:t+A[3]}};
 P.out=function(t,w){
  const mc=this.macro;if(!mc)return w;
  if(mc.dir)w[mc.dir]=1;if(mc.dir=='R')w.run=1;
@@ -960,8 +1008,8 @@ P.out=function(t,w){
  else if(this.style=='fight'){const stall=t-this.lastMove>350;w.H=stall?(((t/90)|0)%2==0?1:0):(((t/650)|0)%3==0&&((t/90)|0)%2==0?1:0);
   if(stall){const c=((t/700)|0)%4;if(c==1)w.U=1;else if(c==3)w.D=1}}
  return w};
-P.step=function(t,l){
- const w={};
+P.step=function(t,l,p1){
+ const w={};this.sigC=null;
  if(!this.prev){this.prev=l;this.settleAt=t+500;return w}
  const m=metrics(this.prev,l);this.prev=l;this.m=m;this.aa=this.aa*.9+m.act*.1;if(m.bright>=10)this.seen=true;
  if(m.bright<10){if(this.mode!='dark'){this.mode='dark';this.endLife(t)}return w}
@@ -970,14 +1018,20 @@ P.step=function(t,l){
  if(m.sx){this.X=Math.max(0,this.X+m.sx);this.lastMove=t}
  const b=Math.floor(this.X/BK);if(b>this.maxB)this.maxB=b;
  const trig=this.lv.trig;
+ if(this.style=='run')this.watch(t,b,l,p1);
  /* disparar trucos aprendidos al cruzar su casilla; si aún dura un salto anterior, se pospone hasta que acabe */
  for(let k=this.lastB+1;k<=b;k++){const e=trig[k];if(e&&!this.fired[k]&&!(this.pend&&this.pend[0]<=k))this.pend=this.pend?this.pend:[k]}
  if(this.pend&&!this.fired[this.pend[0]]){const k=this.pend[0],e=trig[k];
   if(!e){this.pend=null}
-  else if(!this.macro||t>=this.macro.end+80||this.macro.a==0){this.fired[k]=1;this.macro=this.makeMacro(e[0],t);this.trail.push([k,e[0],t]);this.pend=null}}
+  else if(!this.macro||t>=this.macro.end+80||this.macro.a==0){this.fired[k]=1;this.macro=this.makeMacro(e[0],t,e[3]);this.trail.push([k,e[0],t]);this.pend=null}}
  else if(this.pend)this.pend=null;
  this.lastB=b;
  const still=t-this.lastMove,young=t-this.lifeT<1800;
+ /* reconocimiento: si lo de delante se parece a algo que el jugador superó (en este u otro nivel), repite la mejor jugada */
+ if(this.style=='run'&&still<700&&this.store.pat.length&&t>=this.patCd&&(!this.macro||t>=this.macro.end||this.macro.a==0)){
+  const sg=this.sigNow(l);let bp=null,bs=1e9;
+  for(const p of this.store.pat){if(p.q<1)continue;const d=pdist(sg,p.s);if(d<=p.thr){const sc=d-p.q*1.5;if(sc<bs){bs=sc;bp=p}}}
+  if(bp){this.macro=this.makeMacro(9,t,bp.a);this.patCd=t+bp.a.n+200;this.usedPat.push({p:bp,t,b});if(this.usedPat.length>25)this.usedPat.shift();this.note('Esto ya lo vi: ¡sé qué hacer! 💡')}}
  /* atasco: no avanza el scroll aunque la pantalla se mueve */
  if(!young&&still>900&&this.aa>.02){
   if(!this.stallDone){this.stallDone=true;this.stallAt.push(b);for(const k in trig)if(this.fired[k]&&+k<=b&&+k>=b-10)trig[k][1]=0;this.afterDeath();this.say('Me atasqué en la casilla '+b+': pruebo otra cosa 🤔')}
@@ -1078,8 +1132,8 @@ function learnInfo(o){
  const t=title(o);if(!t)return '';
  if(st&&st.o===o&&st.blind)return '🙈 No puedo ver la pantalla de este juego: juego a ciegas.';
  const sto=(st&&st.o===o&&st.brain)?st.brain.store:loadStore(t);
- let n=0,tr=0;sto.lv.forEach(l=>{n+=Object.keys(l.trig).length;tr+=l.tries||0});
- return n||tr?'🧠 Lo aprendido de este juego: '+n+' trucos · '+tr+' vidas de práctica.':'🧠 Aún no he practicado este juego.'}
+ let n=0,tr=0,dm=0;sto.lv.forEach(l=>{for(const k in l.trig){n++;if(l.trig[k][3])dm++}tr+=l.tries||0});const pt=(sto.pat||[]).length;
+ return n||tr||pt?'🧠 Aprendido: '+dm+' jugadas copiadas de ti · '+pt+' patrones para niveles nuevos · '+(n-dm)+' trucos propios · '+tr+' vidas de práctica.':'🧠 Aún no he practicado este juego.'}
 /* guía: la mascota «lee» la ficha del juego en Wikipedia para saber su género y cómo se juega a dos */
 const GKEY=t=>'ior_p2_guide_'+nz(t);
 function parseGuide(txt){
@@ -1120,7 +1174,7 @@ function adopt(prof,mode,first){
  Object.assign(st,{prof,eff,J:btns(prof,'jump',d),H:btns(prof,'hit',d),Rn:btnsRun(prof,d),style:(prof&&prof.style)||'run',fwd:(prof&&prof.fwd)||(eff=='turn'?.8:.55)});
  st.jb=st.J.length?pick(st.J):null;st.hb=st.H.length?pick(st.H):null;
  const sc=st.style=='run'||st.style=='shoot'||(st.style=='fight'&&!(prof&&prof.mode=='vs'));
- st.brain=(smart()&&(eff=='compete'||eff=='turn')&&sc&&title(o))?new IORBrain.Brain(loadStore(title(o)),{style:st.style}):null;
+ st.brain=(smart()&&eff!='cpu'&&title(o)&&((eff=='compete'||eff=='turn')?sc:st.style=='run'))?new IORBrain.Brain(loadStore(title(o)),{style:st.style}):null;
  st.blind=0;st.rc={};st.pz={};
  hud(o).style.display='flex';hud(o).querySelector('#p2m').textContent='P2 '+(eff=='turn'?'🔁':MODES[mode][0])+(st.brain?' 🧠':'');
  if(first){const l=note||pick(LINES[eff]||LINES[mode]);bubble(o,l,note?5500:3500);try{iorVoice.say(l)}catch(_){}}
@@ -1140,10 +1194,10 @@ function start(o,mode){
  if(!prof)guideLookup(o)}
 /* ---- cerebro: ve la pantalla y decide ---- */
 function goBlind(){st.blind=1;bubble(st.o,'No puedo ver la pantalla de este juego: juego a ciegas 🙈',4500);refresh(st.o)}
-function brainTick(t){
+function brainTick(t,drive){
  const br=st.brain,l=eye(st.o);
- if(!l){if(t-st.t0>4500){goBlind();return null}return{}}
- const bw=br.step(t,l);
+ if(!l){if(t-st.t0>4500){goBlind();return null}return drive?{}:null}
+ const bw=br.step(t,l,st.p1);
  if(!br.seen&&t-st.t0>5000){goBlind();return null}
  const w={};
  for(const k of['U','D','L','R'])if(bw[k])w[k]=1;
@@ -1152,7 +1206,7 @@ function brainTick(t){
  if(bw.H&&st.H.length)w[st.H[0]]=1;
  if(br.msg){bubble(st.o,br.msg,3200);br.msg='';refresh(st.o)}
  if(br.dirty||t-(st.sv||0)>15000){br.dirty=false;st.sv=t;saveStore()}
- return w}
+ return drive?w:null}
 /* carreras: acelera, esquiva con giros cortos y, si el juego se queda quieto (choque), marcha atrás */
 function raceStep(t,w,holdRun){
  const rc=st.rc,l=eye(st.o);if(!l)return false;
@@ -1178,7 +1232,7 @@ function tick(){
  if(!st)return;const o=st.o;if(!o.isConnected||!o.p2){stop();return}
  const t=performance.now(),cur=readP1();hist.push([t,cur]);while(hist.length>80||(hist.length&&t-hist[0][0]>900))hist.shift();
  const w={},e=st.eff;
-  if(st.brain&&!st.blind&&(e=='compete'||e=='turn')){const bw=brainTick(t);if(bw){apply(bw);return}}
+  st.p1=cur;if(st.brain&&!st.blind){const bw=brainTick(t,e=='compete'||e=='turn');if(bw){apply(bw);return}}
  const holdRun=()=>st.Rn.forEach(b=>w[b]=1);
  const jump=()=>{if(t>st.jumpAt){st.jb=st.J.length?pick(st.J):null;st.jumpUntil=t+(Math.random()<.3?430:110);st.jumpAt=t+300+Math.random()*900}if(st.jb&&t<st.jumpUntil)w[st.jb]=1};
  const hit=(gap)=>{if(t>st.atkAt){st.hb=st.H.length?pick(st.H):null;st.atkUntil=t+90;st.atkAt=t+gap[0]+Math.random()*gap[1]}if(st.hb&&t<st.atkUntil)w[st.hb]=1};
@@ -1216,7 +1270,7 @@ function inject(o){
   '<button class="btn" data-m="smart" tabindex="-1"></button><button class="btn" data-m="forget" tabindex="-1">🗑 Olvidar lo aprendido</button><small id="p2learn" style="opacity:.9;line-height:1.3"></small><button class="btn" data-m="off" tabindex="-1">⏹ Apagar mascota</button><button class="btn" data-m="start" tabindex="-1">▶ START de la mascota</button>'+
   '<label style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">Este juego: <select id="p2pref" tabindex="-1" style="flex:1;min-width:0"><option value="auto">Auto</option><option value="yes">Sí tiene 2 jugadores</option><option value="no">Solo 1 jugador</option></select></label>'+
   '<small id="p2tip" style="opacity:.9;line-height:1.3"></small>'+
-  '<small style="opacity:.75;line-height:1.3">La mascota mira la pantalla, aprende de cada vida y lo recuerda la próxima vez (mejor en plataformas y juegos de avanzar). En peleas y puzles juega con reglas simples.</small>';
+  '<small style="opacity:.75;line-height:1.3">La mascota te mira jugar (plataformas): aprende tus saltos que sobreviven, se queda con lo mejor, lo aplica ya mismo y también en niveles nuevos parecidos. Además practica sola cuando le toca.</small>';
  o.appendChild(m);refresh(o);
  b.addEventListener('mousedown',e=>e.preventDefault());m.addEventListener('mousedown',e=>{if(e.target.tagName!='SELECT')e.preventDefault()});
  b.addEventListener('click',()=>{m.style.display=m.style.display=='flex'?'none':'flex';m.querySelector('#p2pref').value=pref(title(o));m.querySelector('#p2tip').textContent=tipOf(o)});
