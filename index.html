@@ -873,6 +873,122 @@ document.addEventListener('change',e=>{const k=e.target.dataset&&e.target.datase
 syncIcon();
 return{say,cfg:()=>V}})();
 
+/* Permite leer los píxeles de los juegos WebGL (si no, el lienzo sale en blanco al copiarlo) */
+(function(){const gc=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(t,a){if(typeof t=='string'&&/^(experimental-)?webgl2?$/.test(t))a=Object.assign({},a||{},{preserveDrawingBuffer:true});return gc.call(this,t,a)}})();
+/* ===== CEREBRO DE LA MASCOTA: ojos + memoria + aprendizaje por intentos ===== */
+const IORBrain=(function(){
+const W=128,H=112,BK=4;                       /* BK: píxeles de scroll por casilla de posición */
+/* acciones: [nombre, dirección, ms de salto, ms de duración] */
+const ACTS=[['correr','R',0,240],['saltito','R',140,260],['saltar','R',300,380],['saltoalto','R',520,560],['salto quieto','',420,520],['retroceder y saltar','L',320,420]];
+const JV=[1,2,3,4];
+const rnd=n=>Math.floor(Math.random()*n);
+
+/* --- ojos: compara dos fotogramas (luma 128x112) --- */
+function metrics(a,b){
+ let s=0,br=0;const n=b.length;
+ for(let i=0;i<n;i++){const d=b[i]-a[i];s+=d<0?-d:d;br+=b[i]}
+ const act=s/n,bright=br/n;let best=0,bs=1e18,zero=0;
+ for(let dx=-5;dx<=5;dx++){let sad=0,c=0;
+  for(let y=24;y<H-8;y+=3){const r=y*W;for(let x=8;x<W-8;x+=2){const d=b[r+x]-a[r+x+dx];sad+=d<0?-d:d;c++}}
+  sad/=c;if(dx==0)zero=sad;if(sad<bs-1e-9||(Math.abs(sad-bs)<1e-9&&Math.abs(dx)<Math.abs(best))){bs=sad;best=dx}}
+ const sx=(zero>1.2&&bs<zero*.7)?best:0;
+ return{act,bright,sx,cut:act>34&&sx==0};
+}
+function signature(l){ /* huella del primer fotograma de un nivel: 8x7 celdas, 4 tonos */
+ let s='';const cw=W/8,ch=H/7;
+ for(let cy=0;cy<7;cy++)for(let cx=0;cx<8;cx++){let t=0,c=0;
+  for(let y=(cy*ch)|0;y<((cy+1)*ch|0);y+=3)for(let x=(cx*cw)|0;x<((cx+1)*cw|0);x+=3){t+=l[y*W+x];c++}
+  s+=Math.min(3,((t/c)/64)|0)}
+ return s}
+const ham=(a,b)=>{let d=0;for(let i=0;i<a.length;i++)if(a[i]!=b[i])d++;return d};
+
+function Brain(store,opt){
+ this.store=store&&store.lv?store:{lv:[]};this.opt=opt||{};this.style=this.opt.style||'run';
+ this.prev=null;this.mode='settle';this.settleAt=0;this.X=0;this.lastB=-1;this.maxB=0;this.fired={};this.trail=[];
+ this.macro=null;this.lv=null;this.lifeT=0;this.lastMove=0;this.rec=0;this.stallDone=false;this.lives=0;this.msg='';this.dirty=false;
+ this.seen=false;this.aa=0;this.m={act:0,bright:0,sx:0};this.recT=0;this.pend=null;this.stallAt=[];
+}
+const P=Brain.prototype;
+P.lvl=function(sig){
+ let bestL=null,bd=11;for(const l of this.store.lv){const d=ham(l.sig,sig);if(d<bd){bd=d;bestL=l}}
+ if(bestL)return bestL;
+ const nl={sig,trig:{},tries:0,best:0,clear:0};this.store.lv.push(nl);if(this.store.lv.length>12)this.store.lv.shift();return nl};
+P.say=function(m){this.msg=m};
+P.nTrig=function(){let n=0;for(const l of this.store.lv)n+=Object.keys(l.trig).length;return n};
+/* un truco = «al llegar a la casilla k, haz la acción a». Se prueba, y si falla se muta. */
+P.pickAct=function(not,wide){const pool=wide?[1,2,3,4]:[1,2,3];let a=pool[rnd(pool.length)],n=0;while(a==not&&n++<8)a=pool[rnd(pool.length)];return a};
+P.freeK=function(k){const t=this.lv.trig;k=Math.max(1,k);for(let d=0;d<6;d++){if(!t[k-d]&&k-d>=1)return k-d}return -1};
+P.addTrig=function(near){
+ const t=this.lv.trig;for(let d=-2;d<=2;d++)if(t[near+d])return false;
+ const k=this.freeK(near);if(k<0)return false;t[k]=[this.pickAct(0,false),0,0];return true};
+/* un truco = «al llegar a la casilla k, haz la acción a». Si falla, se cambia de acción y/o se acerca al punto donde murió. */
+P.mutate=function(k){
+ const t=this.lv.trig,e=t[k];if(!e)return;e[2]++;e[1]=0;
+ if(e[2]>=5){delete t[k];this.addTrig(this.maxB-1-rnd(5));return}
+ e[0]=this.pickAct(e[0],e[2]>=3);
+ if(Math.random()<.7){delete t[k];const k2=this.freeK(this.maxB-1-rnd(4));if(k2>0)t[k2]=[e[0],0,e[2]];else t[k]=e}};
+P.stalledNear=function(k){return this.stallAt.some(sb=>k<=sb&&sb<=k+14)};
+P.afterDeath=function(){
+ const t=this.lv.trig,mb=this.maxB,win=[],L=this.lv;
+ /* si llevo muchos intentos muriendo en el mismo sitio, borro lo aprendido ahí y empiezo de cero */
+ if(L.sB!=null&&Math.abs(mb-L.sB)<=3)L.sN=(L.sN||0)+1;else{L.sB=mb;L.sN=1}
+ if(L.sN>=14){for(const k in t)if(+k>=mb-25&&+k<=mb)delete t[k];L.sN=0;this.say('Reinicio mi plan para esta parte 🔄')}
+ for(const k in t){const n=+k;if(n<=mb&&n>=mb-10)win.push(n)}
+ const unc=win.filter(k=>t[k][1]<=0);
+ if(unc.length)unc.forEach(k=>this.mutate(k));
+ else{const near=win.filter(k=>mb-k<=3);if(near.length)near.forEach(k=>this.mutate(k));else this.addTrig(mb-1-rnd(4))}
+ for(const k in t)if(+k<=mb-12&&!this.stalledNear(+k))t[k][1]=1;
+ if(mb>this.lv.best)this.lv.best=mb};
+P.confirmAll=function(){for(const k in this.lv.trig)if(this.fired[k]&&!this.stalledNear(+k))this.lv.trig[k][1]=1};
+P.endLife=function(t){this.endB=this.maxB;this.endFired=this.fired;this.wasStalled=this.stallDone};
+P.enterLevel=function(l,t){
+ const nl=this.lvl(signature(l)),first=!this.lv;
+ if(!first&&this.endB!=null){
+  if(nl===this.lv){ /* mismo nivel → murió */
+   this.lives++;this.lv.tries++;this.maxB=this.endB;this.fired=this.endFired||{};
+   if(!this.wasStalled)this.afterDeath();
+   this.say('Intento '+(this.lv.tries+1)+': ya sé dónde fallé 🧠')}
+  else{this.maxB=this.endB;this.fired=this.endFired||{};this.confirmAll();this.lv.clear++;this.say('¡Nivel superado! 🎉')}
+ }
+ this.lv=nl;this.X=0;this.maxB=0;this.lastB=-1;this.fired={};this.trail=[];this.macro=null;this.pend=null;this.stallAt=[];this.stallDone=false;this.lifeT=t;this.lastMove=t;this.endB=null;this.dirty=true};
+P.makeMacro=function(a,t){const A=ACTS[a];return{a,dir:A[1],jEnd:t+A[2],end:t+A[3]}};
+P.out=function(t,w){
+ const mc=this.macro;if(!mc)return w;
+ if(mc.dir)w[mc.dir]=1;if(mc.dir=='R')w.run=1;
+ if(t<mc.jEnd)w.J=1;
+ if(this.style=='shoot')w.H=(((t/110)|0)%2==0)?1:0;
+ else if(this.style=='fight'){const stall=t-this.lastMove>350;w.H=stall?(((t/90)|0)%2==0?1:0):(((t/650)|0)%3==0&&((t/90)|0)%2==0?1:0);
+  if(stall){const c=((t/700)|0)%4;if(c==1)w.U=1;else if(c==3)w.D=1}}
+ return w};
+P.step=function(t,l){
+ const w={};
+ if(!this.prev){this.prev=l;this.settleAt=t+500;return w}
+ const m=metrics(this.prev,l);this.prev=l;this.m=m;this.aa=this.aa*.9+m.act*.1;if(m.bright>=10)this.seen=true;
+ if(m.bright<10){if(this.mode!='dark'){this.mode='dark';this.endLife(t)}return w}
+ if(this.mode=='dark'){this.mode='settle';this.settleAt=t+500;return w}
+ if(this.mode=='settle'){if(t<this.settleAt)return w;this.enterLevel(l,t);this.mode='play'}
+ if(m.sx){this.X=Math.max(0,this.X+m.sx);this.lastMove=t}
+ const b=Math.floor(this.X/BK);if(b>this.maxB)this.maxB=b;
+ const trig=this.lv.trig;
+ /* disparar trucos aprendidos al cruzar su casilla; si aún dura un salto anterior, se pospone hasta que acabe */
+ for(let k=this.lastB+1;k<=b;k++){const e=trig[k];if(e&&!this.fired[k]&&!(this.pend&&this.pend[0]<=k))this.pend=this.pend?this.pend:[k]}
+ if(this.pend&&!this.fired[this.pend[0]]){const k=this.pend[0],e=trig[k];
+  if(!e){this.pend=null}
+  else if(!this.macro||t>=this.macro.end+80||this.macro.a==0){this.fired[k]=1;this.macro=this.makeMacro(e[0],t);this.trail.push([k,e[0],t]);this.pend=null}}
+ else if(this.pend)this.pend=null;
+ this.lastB=b;
+ const still=t-this.lastMove,young=t-this.lifeT<1800;
+ /* atasco: no avanza el scroll aunque la pantalla se mueve */
+ if(!young&&still>900&&this.aa>.02){
+  if(!this.stallDone){this.stallDone=true;this.stallAt.push(b);for(const k in trig)if(this.fired[k]&&+k<=b&&+k>=b-10)trig[k][1]=0;this.afterDeath();this.say('Me atasqué en la casilla '+b+': pruebo otra cosa 🤔')}
+  if(!this.macro||t>=this.macro.end){this.rec=(this.rec+1)%4;this.macro=this.makeMacro(this.rec==1?5:this.rec==2?4:3,t);if(still>3200&&this.rec%2==0)this.macro={a:0,dir:'',jEnd:0,end:t+500}}
+  return this.out(t,w)}
+ if(still<400)this.stallDone=false;
+ if(!this.macro||t>=this.macro.end)this.macro=this.makeMacro(0,t);
+ return this.out(t,w)};
+return{Brain,metrics,signature,W,H,ACTS};
+})();
+
 /* ---------- MASCOTA COMO 2.º JUGADOR ---------- */
 (function(){
 /* Perfiles por juego: se busca en «título + nombre del archivo ROM». El primero que coincide manda.
@@ -897,6 +1013,7 @@ const PROF=[
  {re:/street fighter|mortal kombat|killer instinct|fatal fury|king of fighters|samurai shodown|tekken|dragon ball|eternal champions|fighter/,mode:'vs',style:'fight',tip:'Elige el modo «VS» / 2 jugadores.'},
  {re:/contra|probotector|gunstar|metal slug|cabal|rolling thunder|alien storm|sunset riders/,mode:'coop',style:'shoot',jump:{nes:['A'],md:['C','B'],retro:['B']},hit:{nes:['B'],md:['B','A'],retro:['Y']},tip:'Elige 2 jugadores; la mascota se une con START.'},
  {re:/streets of rage|double dragon|golden axe|ninja turtles|tmnt|final fight|battletoads|river city|captain commando|knights of the round|bare knuckle/,mode:'coop',style:'fight',jump:{nes:['A'],md:['C'],retro:['B']},hit:{nes:['B'],md:['B'],retro:['Y']},tip:'Elige 2 jugadores; la mascota se une con START.'},
+ {re:/tetris|puyo|columns|dr\.? mario|lemmings|bust-a-move|klax|panel de pon/,name:'Puzle',mode:'vs',style:'puzzle',tip:'Elige el modo de 2 jugadores (versus). La mascota juega con reglas simples: aún no lee el tablero.'},
  {re:/bomberman|toejam|earl|kirby|ice climber|gauntlet|lemmings|tetris|puyo|columns|dr\.? mario|pac-?man|joe ?& ?mac|chip ?(&|n|and)? ?dale|rescue rangers|tiny toon|mickey|aladdin/,mode:'coop',style:'run'}
 ];
 const pref=t=>{try{return localStorage.getItem('ior_p2_'+t.toLowerCase())||'auto'}catch(_){return 'auto'}};
@@ -939,38 +1056,138 @@ function bubble(o,m,ms){const h=hud(o);h.style.display='flex';h.querySelector('#
 function hop(o){const i=o.querySelector('#p2i');if(!i)return;i.style.transform='translateY(-9px)';setTimeout(()=>{i.style.transform=''},130)}
 /* arranque / parada */
 function release(){if(!st)return;const d=st.o.p2;if(d){for(const b in st.cur)if(st.cur[b]&&d.map[b]!=null)d.set(d.map[b],false)}}
-function stop(){if(!st)return;clearInterval(st.timer);release();const o=st.o;st=null;hist=[];if(o.isConnected){const h=o.querySelector('#p2h');if(h)h.style.display='none';refresh(o)}}
+function stop(){if(!st)return;clearInterval(st.timer);release();saveStore();const o=st.o;st=null;hist=[];if(o.isConnected){const h=o.querySelector('#p2h');if(h)h.style.display='none';refresh(o)}}
 function tapStart(o){const d=o.p2;if(!d||d.map.S==null)return;d.set(d.map.S,true);setTimeout(()=>d.set(d.map.S,false),130)}
+/* ---- ojos, memoria y guía ---- */
+const nz=x=>String(x||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+const EY={cv:null,cx:null};
+function eye(o){
+ const src=[...o.querySelectorAll('canvas')].filter(c=>c.width>50&&c.height>50&&c.getBoundingClientRect().width>0).sort((p,q)=>q.width*q.height-p.width*p.height)[0];
+ if(!src)return null;
+ try{const W=IORBrain.W,H=IORBrain.H,n=W*H;
+  if(!EY.cv){EY.cv=document.createElement('canvas');EY.cv.width=W;EY.cv.height=H;EY.cx=EY.cv.getContext('2d',{willReadFrequently:true})}
+  EY.cx.drawImage(src,0,0,W,H);const d=EY.cx.getImageData(0,0,W,H).data,l=new Uint8Array(n);
+  for(let i=0,j=0;j<n;i+=4,j++)l[j]=(d[i]*77+d[i+1]*150+d[i+2]*29)>>8;
+  return l}catch(_){return null}}
+const smart=()=>{try{return localStorage.getItem('ior_p2_smart')!='0'}catch(_){return true}};
+const setSmart=v=>{try{localStorage.setItem('ior_p2_smart',v?'1':'0')}catch(_){}};
+const BKEY=t=>'ior_p2_brain_'+nz(t);
+function loadStore(t){try{const j=JSON.parse(localStorage.getItem(BKEY(t))||'null');if(j&&j.lv)return j}catch(_){}return{lv:[]}}
+function saveStore(){if(!st||!st.brain)return;try{localStorage.setItem(BKEY(title(st.o)),JSON.stringify(st.brain.store))}catch(_){}}
+function learnInfo(o){
+ const t=title(o);if(!t)return '';
+ if(st&&st.o===o&&st.blind)return '🙈 No puedo ver la pantalla de este juego: juego a ciegas.';
+ const sto=(st&&st.o===o&&st.brain)?st.brain.store:loadStore(t);
+ let n=0,tr=0;sto.lv.forEach(l=>{n+=Object.keys(l.trig).length;tr+=l.tries||0});
+ return n||tr?'🧠 Lo aprendido de este juego: '+n+' trucos · '+tr+' vidas de práctica.':'🧠 Aún no he practicado este juego.'}
+/* guía: la mascota «lee» la ficha del juego en Wikipedia para saber su género y cómo se juega a dos */
+const GKEY=t=>'ior_p2_guide_'+nz(t);
+function parseGuide(txt){
+ const s=txt.toLowerCase(),has=r=>r.test(s);let style='run',g='plataformas',vsG=false,rpg=false;
+ if(has(/fighting game|versus fighting|fighting video game/)){style='fight';g='pelea';vsG=true}
+ else if(has(/racing (video )?game|kart racing|racing simulation/)){style='race';g='carreras';vsG=true}
+ else if(has(/puzzle (video )?game|falling[- ]block|tile-matching/)){style='puzzle';g='puzles';vsG=true}
+ else if(has(/beat ?'?em ?up|brawler/)){style='fight';g='beat em up'}
+ else if(has(/run and gun|run-and-gun|shoot ?'?em ?up|shooter/)){style='shoot';g='disparos'}
+ else if(has(/role-playing|action-adventure|adventure game|metroidvania|strategy/)){g='aventura o rol';rpg=true}
+ const two=has(/two[- ]player|2[- ]player|two players|multiplayer|second player|player two|cooperative|co-op|simultaneous/);
+ const mode=vsG?'vs':has(/alternat|take turns|taking turns/)?'alt':two?'coop':rpg?'single':'coop';
+ const ML={coop:'2 jugadores a la vez',alt:'se turnan',vs:'2 jugadores contra ti',single:'1 jugador'};
+ return{style,mode,txt:g+' · '+ML[mode]}}
+async function readGuide(t){
+ try{const c=localStorage.getItem(GKEY(t));if(c)return JSON.parse(c)}catch(_){}
+ try{
+  const A='https://en.wikipedia.org/w/api.php?format=json&origin=*&action=query&';
+  const j1=await(await fetch(A+'list=search&srlimit=4&srsearch='+encodeURIComponent(t+' video game'))).json();
+  const rs=(j1.query&&j1.query.search)||[];if(!rs.length)return null;
+  const hit=rs.find(r=>nz(r.title).includes(nz(t)))||rs[0];
+  const j2=await(await fetch(A+'prop=extracts&explaintext=1&exchars=9000&titles='+encodeURIComponent(hit.title))).json();
+  const pg=Object.values((j2.query&&j2.query.pages)||{})[0];if(!pg||!pg.extract)return null;
+  const g=parseGuide(pg.extract);try{localStorage.setItem(GKEY(t),JSON.stringify(g))}catch(_){}return g}catch(_){return null}}
+function guideLookup(o){
+ const t=title(o);if(!t)return;
+ readGuide(t).then(g=>{if(!g||!st||st.o!==o||st.prof)return;
+  if(g.mode=='single'&&pref(t)=='yes')g=Object.assign({},g,{mode:'coop'});
+  adopt({name:'guía',mode:g.mode,style:g.style,tip:'📖 Leí su ficha en Wikipedia: '+g.txt+'.'},st.mode,false);
+  if(st){const m='Leí sobre '+t+': '+g.txt;bubble(o,m,6000);try{iorVoice.say(m)}catch(_){}}}).catch(()=>{})}
+/* adopta un perfil (conocido, leído de la guía o ninguno) y prepara botones y cerebro */
+function adopt(prof,mode,first){
+ const o=st.o,d=o.p2;let eff=mode,note='';
+ if(prof&&prof.mode=='single'&&pref(title(o))!='yes'&&first===false){const m='Según su ficha, este juego es de 1 jugador: no puedo jugar 🙁';stop();bubble(o,m,6000);try{iorVoice.say(m)}catch(_){}return}
+ if(prof&&prof.mode=='alt'){eff='turn';note='En este juego se turnan: juego solo en mi turno. Elige 2 jugadores en el menú.'}
+ else if(prof&&prof.mode=='vs'&&mode!='compete'){eff='compete';note='Aquí solo puedo competir contra ti.'}
+ else if(prof&&prof.cpu&&mode=='follow'){eff='cpu';note='Me quedo quieta: Tails se sigue solo.'}
+ Object.assign(st,{prof,eff,J:btns(prof,'jump',d),H:btns(prof,'hit',d),Rn:btnsRun(prof,d),style:(prof&&prof.style)||'run',fwd:(prof&&prof.fwd)||(eff=='turn'?.8:.55)});
+ st.jb=st.J.length?pick(st.J):null;st.hb=st.H.length?pick(st.H):null;
+ const sc=st.style=='run'||st.style=='shoot'||(st.style=='fight'&&!(prof&&prof.mode=='vs'));
+ st.brain=(smart()&&(eff=='compete'||eff=='turn')&&sc&&title(o))?new IORBrain.Brain(loadStore(title(o)),{style:st.style}):null;
+ st.blind=0;st.rc={};st.pz={};
+ hud(o).style.display='flex';hud(o).querySelector('#p2m').textContent='P2 '+(eff=='turn'?'🔁':MODES[mode][0])+(st.brain?' 🧠':'');
+ if(first){const l=note||pick(LINES[eff]||LINES[mode]);bubble(o,l,note?5500:3500);try{iorVoice.say(l)}catch(_){}}
+ else if(note)bubble(o,note,4500);
+ refresh(o)}
 function start(o,mode){
  const m=why(o);
  if(m){stop();bubble(o,m,6000);try{toast('🐾 '+m)}catch(_){}try{iorVoice.say(m)}catch(_){}refresh(o);return}
  stop();
- const d=o.p2,pr=profile(o),pf=pref(title(o));
- const prof=(pf=='yes'&&pr&&pr.mode=='single')?null:pr;
- let eff=mode,note='';
- if(prof&&prof.mode=='alt'){eff='turn';note='En este juego se turnan: juego solo en mi turno. Elige 2 jugadores en el menú.'}
- else if(prof&&prof.mode=='vs'&&mode!='compete'){eff='compete';note='Aquí solo puedo competir contra ti.'}
- else if(prof&&prof.cpu&&mode=='follow'){eff='cpu';note='Me quedo quieta: Tails se sigue solo.'}
- st={o,mode,eff,prof,cur:{},timer:0,dir:'',dirUntil:0,jumpAt:0,jumpUntil:0,atkAt:0,atkUntil:0,chat:performance.now()+9000,
-  J:btns(prof,'jump',d),H:btns(prof,'hit',d),Rn:btnsRun(prof,d),style:(prof&&prof.style)||'run',fwd:(prof&&prof.fwd)||(eff=='turn'?.8:.55)};
- st.jb=st.J.length?pick(st.J):null;st.hb=st.H.length?pick(st.H):null;
- hud(o).style.display='flex';hud(o).querySelector('#p2m').textContent='P2 '+(eff=='turn'?'🔁':MODES[mode][0]);
- const l=note||pick(LINES[eff]||LINES[mode]);bubble(o,l,note?5500:3500);try{iorVoice.say(l)}catch(_){}
+ const pr=profile(o),pf=pref(title(o));
+ let prof=(pf=='yes'&&pr&&pr.mode=='single')?null:pr;
+ st={o,mode,eff:mode,prof:null,cur:{},timer:0,dir:'',dirUntil:0,jumpAt:0,jumpUntil:0,atkAt:0,atkUntil:0,chat:performance.now()+9000,t0:performance.now(),brain:null,blind:0,rc:{},pz:{},J:[],H:[],Rn:[],style:'run',fwd:.55};
+ if(!prof){try{const c=localStorage.getItem(GKEY(title(o)));if(c){const g=JSON.parse(c);if(!(g.mode=='single'&&pf!='yes'))prof={name:'guía',mode:g.mode=='single'?'coop':g.mode,style:g.style,tip:'📖 Leí su ficha en Wikipedia: '+g.txt+'.'}}}catch(_){}}
+ adopt(prof,mode,true);
  if(!(prof&&prof.join===false))setTimeout(()=>{if(st&&st.o===o)tapStart(o)},700);   /* se une al juego con START del 2.º mando */
- st.timer=setInterval(tick,33);refresh(o)}
+ st.timer=setInterval(tick,33);refresh(o);
+ if(!prof)guideLookup(o)}
+/* ---- cerebro: ve la pantalla y decide ---- */
+function goBlind(){st.blind=1;bubble(st.o,'No puedo ver la pantalla de este juego: juego a ciegas 🙈',4500);refresh(st.o)}
+function brainTick(t){
+ const br=st.brain,l=eye(st.o);
+ if(!l){if(t-st.t0>4500){goBlind();return null}return{}}
+ const bw=br.step(t,l);
+ if(!br.seen&&t-st.t0>5000){goBlind();return null}
+ const w={};
+ for(const k of['U','D','L','R'])if(bw[k])w[k]=1;
+ if(bw.run)st.Rn.forEach(b=>w[b]=1);
+ if(bw.J&&st.J.length)w[st.J[0]]=1;
+ if(bw.H&&st.H.length)w[st.H[0]]=1;
+ if(br.msg){bubble(st.o,br.msg,3200);br.msg='';refresh(st.o)}
+ if(br.dirty||t-(st.sv||0)>15000){br.dirty=false;st.sv=t;saveStore()}
+ return w}
+/* carreras: acelera, esquiva con giros cortos y, si el juego se queda quieto (choque), marcha atrás */
+function raceStep(t,w,holdRun){
+ const rc=st.rc,l=eye(st.o);if(!l)return false;
+ if(rc.prev)rc.aa=(rc.aa||0)*.9+IORBrain.metrics(rc.prev,l).act*.1;rc.prev=l;
+ if(rc.until&&t<rc.until){w.D=1;w[rc.turn]=1;return true}
+ if(t-st.t0>3000&&rc.aa!=null&&rc.aa<.12){if(!rc.low)rc.low=t;if(t-rc.low>800){rc.until=t+700;rc.turn=Math.random()<.5?'L':'R';rc.low=0}}else rc.low=0;
+ holdRun();
+ if(t>st.dirUntil){const r=Math.random();st.dir=r<.6?'':r<.8?'L':'R';st.dirUntil=t+300+Math.random()*700}
+ if(st.dir)w[st.dir]=1;
+ if(t>st.atkAt){st.hb=st.H.length?pick(st.H):null;st.atkUntil=t+90;st.atkAt=t+2500+Math.random()*3000}if(st.hb&&t<st.atkUntil)w[st.hb]=1;
+ return true}
+/* puzles: sin leer el tablero; mueve, gira y suelta fichas con reglas simples */
+function puzzleStep(t,w){
+ const z=st.pz;
+ if(!z.next||t>z.next){z.dir=Math.random()<.5?'L':'R';z.n=1+(Math.random()*5|0);z.rot=Math.random()*4|0;z.drop=Math.random()<.5;z.t=t;z.next=t+1500+Math.random()*900}
+ const dt=t-z.t,mv=z.n*130;
+ if(dt<mv&&((dt/65)|0)%2==0)w[z.dir]=1;
+ if(dt>=mv&&dt<mv+z.rot*130&&((((dt-mv)/65)|0)%2==0)&&st.J.length)w[st.J[0]]=1;
+ if(z.drop&&dt>700)w.D=1}
 function apply(w){const d=st.o.p2;for(const b in d.map){const v=!!w[b];if(!!st.cur[b]!==v){st.cur[b]=v;d.set(d.map[b],v)}}
  if(st.jb&&w[st.jb]&&!st.jh){st.jh=1;hop(st.o)}if(!st.jb||!w[st.jb])st.jh=0}
 function tick(){
  if(!st)return;const o=st.o;if(!o.isConnected||!o.p2){stop();return}
  const t=performance.now(),cur=readP1();hist.push([t,cur]);while(hist.length>80||(hist.length&&t-hist[0][0]>900))hist.shift();
  const w={},e=st.eff;
+  if(st.brain&&!st.blind&&(e=='compete'||e=='turn')){const bw=brainTick(t);if(bw){apply(bw);return}}
  const holdRun=()=>st.Rn.forEach(b=>w[b]=1);
  const jump=()=>{if(t>st.jumpAt){st.jb=st.J.length?pick(st.J):null;st.jumpUntil=t+(Math.random()<.3?430:110);st.jumpAt=t+300+Math.random()*900}if(st.jb&&t<st.jumpUntil)w[st.jb]=1};
  const hit=(gap)=>{if(t>st.atkAt){st.hb=st.H.length?pick(st.H):null;st.atkUntil=t+90;st.atkAt=t+gap[0]+Math.random()*gap[1]}if(st.hb&&t<st.atkUntil)w[st.hb]=1};
  if(e=='cpu'){/* Tails con IA propia: no se toca nada */}
  else if(e=='follow'){const s=snap(t-220);w.U=s.U;w.D=s.D;w.L=s.L;w.R=s.R;if(s.A&&st.jb)w[st.jb]=1}
  else if(e=='help'){const s=snap(t-260);w.U=s.U;w.D=s.D;w.L=s.L;w.R=s.R;if(s.A&&st.jb)w[st.jb]=1;hit([260,320])}
- else{ /* competir / turnos: cada estilo juega distinto */
+ else if(st.style=='puzzle'){puzzleStep(t,w)}
+  else if(st.style=='race'&&raceStep(t,w,holdRun)){}
+  else{ /* competir / turnos: cada estilo juega distinto */
   if(t>st.dirUntil){const r=Math.random();
    if(st.style=='fight'){st.dir=r<.4?'R':r<.75?'L':r<.88?'D':'';st.dirUntil=t+250+Math.random()*500}
    else if(st.style=='race'){st.dir=r<.35?'L':r<.7?'R':'';st.dirUntil=t+300+Math.random()*700}
@@ -985,7 +1202,9 @@ function tick(){
 function tipOf(o){const d=o.p2,p=profile(o);return (p&&p.tip)||(d?'Consola: '+d.label+'. Elige el modo de 2 jugadores en el menú del juego; la mascota se une con START.':'')}
 function refresh(o){const m=o.querySelector('#p2menu');if(!m)return;
  m.querySelectorAll('[data-m]').forEach(b=>{const k=b.dataset.m;if(!MODES[k])return;const a=st&&st.o===o&&st.mode==k;b.style.outline=a?'2px solid #5cf':'';b.textContent=MODES[k][0]+' '+MODES[k][1]+(a?' ✔':'')});
- const g=o.querySelector('#p2b');if(g)g.style.background=(st&&st.o===o)?'#2fa8ff':''}
+ const sb=m.querySelector('[data-m="smart"]');if(sb)sb.textContent='🧠 Modo inteligente: '+(smart()?'sí':'no');
+  const li=m.querySelector('#p2learn');if(li)li.textContent=learnInfo(o);
+  const g=o.querySelector('#p2b');if(g)g.style.background=(st&&st.o===o)?'#2fa8ff':''}
 function inject(o){
  const bar=o.querySelector('.bar');if(!bar)return;
  const b=document.createElement('button');b.className='btn';b.id='p2b';b.title='Mascota: segundo jugador';b.setAttribute('aria-label','Mascota como segundo jugador');b.tabIndex=-1;
@@ -994,15 +1213,17 @@ function inject(o){
  const m=document.createElement('div');m.id='p2menu';
  m.style.cssText='position:absolute;right:8px;top:calc(3.3rem + env(safe-area-inset-top,0px));z-index:60;width:min(300px,92vw);display:none;flex-direction:column;gap:6px;padding:10px;border-radius:14px;background:rgba(10,20,40,.96);color:#fff;border:2px solid rgba(255,255,255,.35);font:13px system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.5)';
  m.innerHTML='<b>🐾 Mascota — segundo jugador</b>'+Object.keys(MODES).map(k=>'<button class="btn" data-m="'+k+'" tabindex="-1"></button>').join('')+
-  '<button class="btn" data-m="off" tabindex="-1">⏹ Apagar mascota</button><button class="btn" data-m="start" tabindex="-1">▶ START de la mascota</button>'+
+  '<button class="btn" data-m="smart" tabindex="-1"></button><button class="btn" data-m="forget" tabindex="-1">🗑 Olvidar lo aprendido</button><small id="p2learn" style="opacity:.9;line-height:1.3"></small><button class="btn" data-m="off" tabindex="-1">⏹ Apagar mascota</button><button class="btn" data-m="start" tabindex="-1">▶ START de la mascota</button>'+
   '<label style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">Este juego: <select id="p2pref" tabindex="-1" style="flex:1;min-width:0"><option value="auto">Auto</option><option value="yes">Sí tiene 2 jugadores</option><option value="no">Solo 1 jugador</option></select></label>'+
   '<small id="p2tip" style="opacity:.9;line-height:1.3"></small>'+
-  '<small style="opacity:.75;line-height:1.3">La mascota juega pulsando botones del mando 2 (no ve la pantalla): va mejor en juegos cooperativos, de pelea o de carreras.</small>';
+  '<small style="opacity:.75;line-height:1.3">La mascota mira la pantalla, aprende de cada vida y lo recuerda la próxima vez (mejor en plataformas y juegos de avanzar). En peleas y puzles juega con reglas simples.</small>';
  o.appendChild(m);refresh(o);
  b.addEventListener('mousedown',e=>e.preventDefault());m.addEventListener('mousedown',e=>{if(e.target.tagName!='SELECT')e.preventDefault()});
  b.addEventListener('click',()=>{m.style.display=m.style.display=='flex'?'none':'flex';m.querySelector('#p2pref').value=pref(title(o));m.querySelector('#p2tip').textContent=tipOf(o)});
  m.addEventListener('click',e=>{const k=e.target.dataset&&e.target.dataset.m;if(!k)return;
   if(k=='off'){stop();bubble(o,'Vale, me quedo mirando 👀',2500)}
+   else if(k=='smart'){setSmart(!smart());if(st&&st.o===o)start(o,st.mode);else refresh(o);return}
+   else if(k=='forget'){try{localStorage.removeItem(BKEY(title(o)));localStorage.removeItem(GKEY(title(o)))}catch(_){}bubble(o,'He olvidado todo sobre este juego 🧽',2500);if(st&&st.o===o)start(o,st.mode);else refresh(o);return}
   else if(k=='start'){const w=why(o);if(w)start(o,'follow');else tapStart(o)}
   else{start(o,k);if(st&&st.o===o)m.style.display='none'}
   try{o.querySelector('canvas')?.focus()}catch(_){}});
@@ -1100,10 +1321,25 @@ const off=()=>{try{return +localStorage.getItem('ior:sgoff')||0}catch(_){return 
 function pick(){let s=(slot()*31+off()*7+11)%2147483646+1;const R=()=>(s=(s*16807)%2147483647)/2147483647,out=[];
  ['md','nes','snes'].forEach(sy=>{const a=C.filter(x=>x.sy==sy&&!inLib(x));for(let i=a.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[a[i],a[j]]=[a[j],a[i]]}out.push(...a.slice(0,2))});return out}
 const fb=it=>cover({id:it.id,title:it.t,rom:1,sys:SYSN[it.sy]});
-function html(){const L=pick();if(!L.length)return '';
- return `<div class="panel" id="sgp"><div class="row" style="justify-content:space-between"><h2>🔥 Populares que aún no están</h2><button class="btn" data-a="sgmore">🔄 Otras</button></div><small>Cambian solas cada pocas horas. THE IOR no descarga ROMs: elige tu propia ROM y se añade con su portada.</small><div class="sgrid">${L.map(it=>`<div class="card"><img class="cov" alt="" loading="lazy" data-fb="${e(it.id)}" src="${it.img}"><b>${e(it.t)}</b><span class="pill">${SYSN[it.sy]} · ${it.y}</span><button class="btn go" data-a="sgadd" data-id="${it.id}">➕ Añadir mi ROM</button></div>`).join('')}</div></div>`}
+/* --- Buscador de portadas: caché -> libretro (varias regiones) -> Wikipedia (búsqueda por título) -> arte generado --- */
+const IMGC=(()=>{try{return JSON.parse(localStorage.getItem('ior:sgimg')||'{}')}catch(_){return{}}})(),IMGP=new Map(),
+ WSYS={md:'Sega Genesis',nes:'Nintendo Entertainment System',snes:'Super Nintendo Entertainment System'};
+const saveImg=()=>{try{localStorage.setItem('ior:sgimg',JSON.stringify(IMGC))}catch(_){}};
+const tryImg=u=>new Promise(res=>{const im=new Image();let d=0;const f=ok=>{if(d)return;d=1;res(ok&&im.naturalWidth>40?u:null)};im.onload=()=>f(1);im.onerror=()=>f(0);setTimeout(()=>f(0),8000);im.src=u});
+function libUrls(it){const r=RAW[+it.id.slice(2)],base=r[3].replace(/\s*\(.*$/,''),ph='https://thumbnails.libretro.com/'+encodeURIComponent(FOLD[it.sy])+'/Named_Boxarts/',names=[r[3]];
+ ['USA','USA, Europe','World','Europe','Japan, USA','Japan'].forEach(rg=>names.push(base+' ('+rg+')'));return [...new Set(names)].map(n=>ph+encodeURIComponent(n)+'.png')}
+async function wikiImg(it){try{const q=it.t+' '+WSYS[it.sy]+' video game',j=await(await fetch('https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrlimit=6&prop=pageimages&piprop=thumbnail&pithumbsize=400&gsrsearch='+encodeURIComponent(q))).json();
+ const ps=Object.values((j.query||{}).pages||{}).sort((a,b)=>a.index-b.index);
+ for(const p of ps){const n=norm(p.title);if(p.thumbnail&&it.k.some(k=>n.includes(k))){const u=await tryImg(p.thumbnail.source);if(u)return u}}}catch(_){}return null}
+function resolveImg(it){if(IMGC[it.id])return Promise.resolve(IMGC[it.id]);
+ if(!IMGP.has(it.id))IMGP.set(it.id,(async()=>{const rs=await Promise.all(libUrls(it).map(tryImg)),u=rs.find(Boolean)||await wikiImg(it);if(u){IMGC[it.id]=u;saveImg();return u}IMGP.delete(it.id);return null})());
+ return IMGP.get(it.id)}
+function hydrate(){document.querySelectorAll('#sgp img[data-sg]:not([data-ok])').forEach(im=>{im.dataset.ok='1';const it=C.find(x=>x.id==im.dataset.sg);if(!it)return;
+ resolveImg(it).then(u=>{if(u&&im.isConnected){im.src=u;im.dataset.real='1'}else delete im.dataset.ok})})}
+function html(){const L=pick();if(!L.length)return '';setTimeout(hydrate,0);setTimeout(hydrate,700);
+ return `<div class="panel" id="sgp"><div class="row" style="justify-content:space-between"><h2>🔥 Populares que aún no están</h2><button class="btn" data-a="sgmore">🔄 Otras</button></div><small>Cambian solas cada pocas horas. THE IOR no descarga ROMs: elige tu propia ROM y se añade con su portada.</small><div class="sgrid">${L.map(it=>`<div class="card"><img class="cov" alt="" data-fb="${e(it.id)}" data-sg="${e(it.id)}" ${IMGC[it.id]?'data-real="1" ':''}src="${IMGC[it.id]||fb(it)}"><b>${e(it.t)}</b><span class="pill">${SYSN[it.sy]} · ${it.y}</span><button class="btn go" data-a="sgadd" data-id="${it.id}">➕ Añadir mi ROM</button></div>`).join('')}</div></div>`}
 function refresh(){const p=document.getElementById('sgp'),h=html();if(p)p.outerHTML=h}
-document.head.insertAdjacentHTML('beforeend','<style>.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.8rem;margin-top:.6rem}</style>');
+document.head.insertAdjacentHTML('beforeend','<style>.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.8rem;margin-top:.6rem}.sgrid .cov[data-real]{image-rendering:auto}</style>');
 const _g=vGames;vGames=function(){const h=_g.apply(this,arguments),k='<h2>'+t('games')+'</h2>';return h.includes(k)?h.replace(k,html()+k):h};
 document.addEventListener('error',ev=>{const i=ev.target;if(!i||i.tagName!='IMG'||!i.dataset.fb)return;const it=C.find(x=>x.id==i.dataset.fb);delete i.dataset.fb;if(it)i.src=fb(it)},true);
 setInterval(()=>{if(S.tab!='games'||document.getElementById('ov'))return;const a=document.activeElement;if(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName))return;const p=document.getElementById('sgp');if(!p)return;if(p.dataset.slot!=String(slot()+':'+off())+':'+games.length){refresh();const q=document.getElementById('sgp');if(q)q.dataset.slot=String(slot()+':'+off())+':'+games.length}},60000);
@@ -1121,7 +1357,7 @@ document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-a=
   toast('⏳ '+fmt(f.size));
   try{await idbPut(g.id,f)}catch(x){return toast('Sin espacio / No space')}
   Object.assign(g,await cloudUp(f));
-  try{const r=await fetch(it.img);if(r.ok){const c=await toCover(await r.blob());if(c)g.cover=c}}catch(x){}
+  const cu=await resolveImg(it);if(cu){try{const r=await fetch(cu);if(r.ok){const c=await toCover(await r.blob());if(c)g.cover=c}}catch(x){}if(!g.cover)g.cover=cu}
   games.push(g);sv('games',games);toast(t('ok')+' · '+it.t);render()};
  inp.click()});
 })();
