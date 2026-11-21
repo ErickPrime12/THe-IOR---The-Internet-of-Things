@@ -876,6 +876,26 @@ return{say,cfg:()=>V}})();
 /* Permite leer los píxeles de los juegos WebGL (si no, el lienzo sale en blanco al copiarlo) */
 (function(){const gc=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(t,a){if(typeof t=='string'&&/^(experimental-)?webgl2?$/.test(t))a=Object.assign({},a||{},{preserveDrawingBuffer:true});return gc.call(this,t,a)}})();
 /* ===== CEREBRO DE LA MASCOTA: ojos + memoria + aprendizaje por intentos ===== */
+/* ---- Asesor LLM (Claude / Gemini / DeepSeek): solo se le consulta cuando la mascota se atasca; su respuesta se valida y limita ---- */
+const IORAdvisor=(function(){
+ const K='ior_p2_llm',DEF={claude:'claude-haiku-4-5',gemini:'gemini-2.5-flash',deepseek:'deepseek-chat'};
+ let n=0,last=0,off=0,errs=0;
+ const cfg=()=>{try{const c=JSON.parse(localStorage.getItem(K)||'null');return c&&c.key&&DEF[c.prov]?c:null}catch(_){return null}};
+ const set=c=>{try{c?localStorage.setItem(K,JSON.stringify(c)):localStorage.removeItem(K)}catch(_){};errs=0;off=0};
+ const clean=r=>{if(!r||typeof r!='object')return null;const d=r.d=='L'?'L':r.d=='R'?'R':'';const j=Math.max(0,Math.min(900,+r.j||0)),m=Math.max(150,Math.min(900,+r.n||j+250));
+  return{d,j,n:Math.max(m,j+120),why:String(r.why||'').slice(0,80)}};
+ async function ask(ctx){
+  const c=cfg(),now=Date.now();if(!c||now<off||now-last<8000||n>=40)return null;last=now;n++;
+  const sys='Eres el asesor de una IA que juega de segundo jugador un videojuego retro y aprende viendo al humano. Sé prudente: propón la acción más segura y parecida a lo que hizo el humano. Responde SOLO un JSON: {"d":"R"|"L"|"","j":ms_de_salto_0a900,"n":ms_totales_150a900,"why":"motivo breve"}. d=dirección mientras actúa (R derecha, L izquierda, vacío quieto), j=cuánto mantener el botón de salto (0 = no saltar), n=duración total.';
+  const usr=JSON.stringify(ctx);const ac=new AbortController(),to=setTimeout(()=>ac.abort(),12000);
+  try{let txt='';const m=c.model||DEF[c.prov];
+   if(c.prov=='claude'){const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',signal:ac.signal,headers:{'content-type':'application/json','x-api-key':c.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:m,max_tokens:200,system:sys,messages:[{role:'user',content:usr}]})});if(!r.ok)throw r.status;const j=await r.json();txt=(j.content&&j.content[0]&&j.content[0].text)||''}
+   else if(c.prov=='gemini'){const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(m)+':generateContent',{method:'POST',signal:ac.signal,headers:{'content-type':'application/json','x-goog-api-key':c.key},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:[{role:'user',parts:[{text:usr}]}],generationConfig:{responseMimeType:'application/json',maxOutputTokens:200}})});if(!r.ok)throw r.status;const j=await r.json();txt=(((j.candidates||[])[0]||{}).content||{parts:[{}]}).parts[0].text||''}
+   else{const r=await fetch('https://api.deepseek.com/chat/completions',{method:'POST',signal:ac.signal,headers:{'content-type':'application/json',authorization:'Bearer '+c.key},body:JSON.stringify({model:m,max_tokens:200,response_format:{type:'json_object'},messages:[{role:'system',content:sys},{role:'user',content:usr}]})});if(!r.ok)throw r.status;const j=await r.json();txt=(j.choices&&j.choices[0]&&j.choices[0].message.content)||''}
+   const mm=txt.match(/\{[\s\S]*\}/);errs=0;return mm?clean(JSON.parse(mm[0])):null}
+  catch(_){if(++errs>=3){off=Date.now()+120000;errs=0}return null}
+  finally{clearTimeout(to)}}
+ return{ask,cfg,set,DEF,reset(){n=0}}})();
 const IORBrain=(function(){
 const W=128,H=112,BK=4;                       /* BK: píxeles de scroll por casilla de posición */
 /* acciones: [nombre, dirección, ms de salto, ms de duración] */
@@ -912,7 +932,7 @@ function Brain(store,opt){
  this.prev=null;this.mode='settle';this.settleAt=0;this.X=0;this.lastB=-1;this.maxB=0;this.fired={};this.trail=[];
  this.macro=null;this.lv=null;this.lifeT=0;this.lastMove=0;this.rec=0;this.stallDone=false;this.lives=0;this.msg='';this.dirty=false;
  this.seen=false;this.aa=0;this.m={act:0,bright:0,sx:0};this.recT=0;this.pend=null;this.stallAt=[];
- this.store.pat=this.store.pat||[];this.evs=[];this.dm=null;this.pa=0;this.patCd=0;this.usedPat=[];this.learnN=0;this.sigC=null;this.lastSay=0;this.endEvs=[];this.endPat=[];this.endT=0;this.endL=0;
+ this.adv=(opt&&opt.advisor)||null;this.ctxf=(opt&&opt.ctx)||null;this.store.pat=this.store.pat||[];this.evs=[];this.dm=null;this.pa=0;this.patCd=0;this.usedPat=[];this.learnN=0;this.sigC=null;this.lastSay=0;this.endEvs=[];this.endPat=[];this.endT=0;this.endL=0;
 }
 const P=Brain.prototype;
 P.lvl=function(sig){
@@ -922,17 +942,32 @@ P.lvl=function(sig){
 P.say=function(m){this.msg=m};
 P.nTrig=function(){let n=0;for(const l of this.store.lv)n+=Object.keys(l.trig).length;return n};
 /* un truco = «al llegar a la casilla k, haz la acción a». Se prueba, y si falla se muta. */
+P.demoVar=function(mb){
+ let c=[];const t=this.lv.trig;
+ for(const k in t){const e=t[k];if(e[3]&&e[4]>=1&&Math.abs(+k-mb)<=70)c.push({a:e[3],w:e[4]+3/(1+Math.abs(+k-mb)/8)})}
+ for(const p of this.store.pat)if(p.q>=1)c.push({a:p.a,w:p.q*.6});
+ if(!c.length)return null;let tot=0;c.forEach(x=>tot+=x.w);let r=Math.random()*tot,x=c[0];for(const y of c){r-=y.w;if(r<=0){x=y;break}}
+ const a=x.a,jit=rnd(5)-2;/* se parece a lo que hace el jugador, con pequeñas variaciones: más/menos salto, momento distinto */
+ const j=Math.max(a.j?60:0,Math.min(900,a.j+jit*70)),d=Math.random()<.2?(a.d=='R'?'':'R'):a.d;
+ return{d,j,n:Math.max(j+150,Math.min(900,a.n+jit*40))}};
 P.pickAct=function(not,wide){const pool=wide?[1,2,3,4]:[1,2,3];let a=pool[rnd(pool.length)],n=0;while(a==not&&n++<8)a=pool[rnd(pool.length)];return a};
 P.freeK=function(k){const t=this.lv.trig;k=Math.max(1,k);for(let d=0;d<6;d++){if(!t[k-d]&&k-d>=1)return k-d}return -1};
 P.addTrig=function(near){
  const t=this.lv.trig;for(let d=-2;d<=2;d++)if(t[near+d])return false;
- const k=this.freeK(near);if(k<0)return false;t[k]=[this.pickAct(0,false),0,0];return true};
+ const k=this.freeK(near);if(k<0)return false;const v=Math.random()<.75?this.demoVar(near):null;t[k]=v?[0,0,0,v,2,0]:[this.pickAct(0,false),0,0];return true};
 /* un truco = «al llegar a la casilla k, haz la acción a». Si falla, se cambia de acción y/o se acerca al punto donde murió. */
 P.mutate=function(k){
  const t=this.lv.trig,e=t[k];if(!e)return;if(e[3]){e[4]=(e[4]||1)-1;e[1]=0;if(e[4]<=0)delete t[k];return}e[2]++;e[1]=0;
  if(e[2]>=5){delete t[k];this.addTrig(this.maxB-1-rnd(5));return}
- e[0]=this.pickAct(e[0],e[2]>=3);
- if(Math.random()<.7){delete t[k];const k2=this.freeK(this.maxB-1-rnd(4));if(k2>0)t[k2]=[e[0],0,e[2]];else t[k]=e}};
+ const v=Math.random()<.65?this.demoVar(this.maxB):null;if(v){e[3]=v;e[4]=2;e[5]=0}else e[0]=this.pickAct(e[0],e[2]>=3);
+ if(Math.random()<.7){delete t[k];const k2=this.freeK(this.maxB-1-rnd(4));if(k2>0)t[k2]=e;else t[k]=e}};
+/* consulta al asesor LLM cuando muere repetidamente en el mismo punto o se atasca; valida y siembra su consejo como jugada de prueba */
+P.askAdvisor=function(mb){
+ if(!this.adv||!this.ctxf)return;const lv=this.lv,t=lv.trig,near=[];
+ for(const k in t)if(Math.abs(+k-mb)<=12){const e=t[k];near.push({dist:+k-mb,src:e[3]?'copiado del jugador':'probado por mí',d:(e[3]?e[3].d:ACTS[e[0]][1])||'quieto',salto_ms:e[3]?e[3].j:ACTS[e[0]][2]})}
+ const demos=[];for(const k in t)if(t[k][3]&&Math.abs(+k-mb)<=60)demos.push({dist:+k-mb,d:t[k][3].d||'quieto',salto_ms:t[k][3].j});
+ const ctx=Object.assign({},this.ctxf(),{muertes_en_este_punto:lv.sN||1,atascada:!!this.wasStalled,intentos_cerca:near.slice(0,8),jugadas_del_jugador_cercanas:demos.slice(0,6),jugadas_tipicas_del_jugador:this.store.pat.slice(0,6).map(p=>({d:p.a.d||'quieto',salto_ms:p.a.j}))});
+ this.adv(ctx).then(r=>{if(!r||this.lv!==lv)return;const k=this.freeK(this.maxB-1-rnd(3));if(k<1)return;t[k]=[0,0,0,{d:r.d,j:r.j,n:r.n},2,0];this.dirty=true;this.note('Mi asesor IA me dio una idea 🤝'+(r.why?': '+r.why:''))}).catch(()=>{})};
 P.stalledNear=function(k){return this.stallAt.some(sb=>k<=sb&&sb<=k+14)};
 P.afterDeath=function(){
  const t=this.lv.trig,mb=this.maxB,win=[],L=this.lv;
@@ -944,7 +979,8 @@ P.afterDeath=function(){
  if(unc.length)unc.forEach(k=>this.mutate(k));
  else{const near=win.filter(k=>mb-k<=3);if(near.length)near.forEach(k=>this.mutate(k));else this.addTrig(mb-1-rnd(4))}
  for(const k in t)if(+k<=mb-12&&!this.stalledNear(+k))t[k][1]=1;
- if(mb>this.lv.best)this.lv.best=mb};
+ if(mb>this.lv.best)this.lv.best=mb;
+ if(L.sN>=2||this.wasStalled)this.askAdvisor(mb)};
 P.confirmAll=function(){for(const k in this.lv.trig)if(this.fired[k]&&!this.stalledNear(+k))this.lv.trig[k][1]=1};
 P.endLife=function(t){this.endB=this.maxB;this.endFired=this.fired;this.wasStalled=this.stallDone;this.endEvs=this.evs;this.evs=[];this.dm=null;this.endPat=this.usedPat;this.usedPat=[];this.endT=t;this.endL=this.lifeT};
 P.sigNow=function(l){return this.sigC||(this.sigC=ahead(l))};
@@ -1157,10 +1193,10 @@ async function readGuide(t){
   const hit=rs.find(r=>nz(r.title).includes(nz(t)))||rs[0];
   const j2=await(await fetch(A+'prop=extracts&explaintext=1&exchars=9000&titles='+encodeURIComponent(hit.title))).json();
   const pg=Object.values((j2.query&&j2.query.pages)||{})[0];if(!pg||!pg.extract)return null;
-  const g=parseGuide(pg.extract);try{localStorage.setItem(GKEY(t),JSON.stringify(g))}catch(_){}return g}catch(_){return null}}
+  const g=parseGuide(pg.extract);g.sum=pg.extract.replace(/\s+/g,' ').slice(0,700);try{localStorage.setItem(GKEY(t),JSON.stringify(g))}catch(_){}return g}catch(_){return null}}
 function guideLookup(o){
  const t=title(o);if(!t)return;
- readGuide(t).then(g=>{if(!g||!st||st.o!==o||st.prof)return;
+ readGuide(t).then(g=>{if(g&&st&&st.o===o)st.gsum=g.sum||'';if(!g||!st||st.o!==o||st.prof)return;
   if(g.mode=='single'&&pref(t)=='yes')g=Object.assign({},g,{mode:'coop'});
   adopt({name:'guía',mode:g.mode,style:g.style,tip:'📖 Leí su ficha en Wikipedia: '+g.txt+'.'},st.mode,false);
   if(st){const m='Leí sobre '+t+': '+g.txt;bubble(o,m,6000);try{iorVoice.say(m)}catch(_){}}}).catch(()=>{})}
@@ -1174,7 +1210,7 @@ function adopt(prof,mode,first){
  Object.assign(st,{prof,eff,J:btns(prof,'jump',d),H:btns(prof,'hit',d),Rn:btnsRun(prof,d),style:(prof&&prof.style)||'run',fwd:(prof&&prof.fwd)||(eff=='turn'?.8:.55)});
  st.jb=st.J.length?pick(st.J):null;st.hb=st.H.length?pick(st.H):null;
  const sc=st.style=='run'||st.style=='shoot'||(st.style=='fight'&&!(prof&&prof.mode=='vs'));
- st.brain=(smart()&&eff!='cpu'&&title(o)&&((eff=='compete'||eff=='turn')?sc:st.style=='run'))?new IORBrain.Brain(loadStore(title(o)),{style:st.style}):null;
+ st.brain=(smart()&&eff!='cpu'&&title(o)&&((eff=='compete'||eff=='turn')?sc:st.style=='run'))?new IORBrain.Brain(loadStore(title(o)),{style:st.style,advisor:IORAdvisor.ask,ctx:()=>({juego:title(o),genero:st.style,modo:st.eff,ficha:(st.gsum||'').slice(0,600),acciones:'d=R/L/quieto; salto_ms=ms con el botón de salto pulsado'})}):null;
  st.blind=0;st.rc={};st.pz={};
  hud(o).style.display='flex';hud(o).querySelector('#p2m').textContent='P2 '+(eff=='turn'?'🔁':MODES[mode][0])+(st.brain?' 🧠':'');
  if(first){const l=note||pick(LINES[eff]||LINES[mode]);bubble(o,l,note?5500:3500);try{iorVoice.say(l)}catch(_){}}
@@ -1187,7 +1223,7 @@ function start(o,mode){
  const pr=profile(o),pf=pref(title(o));
  let prof=(pf=='yes'&&pr&&pr.mode=='single')?null:pr;
  st={o,mode,eff:mode,prof:null,cur:{},timer:0,dir:'',dirUntil:0,jumpAt:0,jumpUntil:0,atkAt:0,atkUntil:0,chat:performance.now()+9000,t0:performance.now(),brain:null,blind:0,rc:{},pz:{},J:[],H:[],Rn:[],style:'run',fwd:.55};
- if(!prof){try{const c=localStorage.getItem(GKEY(title(o)));if(c){const g=JSON.parse(c);if(!(g.mode=='single'&&pf!='yes'))prof={name:'guía',mode:g.mode=='single'?'coop':g.mode,style:g.style,tip:'📖 Leí su ficha en Wikipedia: '+g.txt+'.'}}}catch(_){}}
+ if(!prof){try{const c=localStorage.getItem(GKEY(title(o)));if(c){const g=JSON.parse(c);st.gsum=g.sum||'';if(!(g.mode=='single'&&pf!='yes'))prof={name:'guía',mode:g.mode=='single'?'coop':g.mode,style:g.style,tip:'📖 Leí su ficha en Wikipedia: '+g.txt+'.'}}}catch(_){}}
  adopt(prof,mode,true);
  if(!(prof&&prof.join===false))setTimeout(()=>{if(st&&st.o===o)tapStart(o)},700);   /* se une al juego con START del 2.º mando */
  st.timer=setInterval(tick,33);refresh(o);
@@ -1256,6 +1292,7 @@ function tick(){
 function tipOf(o){const d=o.p2,p=profile(o);return (p&&p.tip)||(d?'Consola: '+d.label+'. Elige el modo de 2 jugadores en el menú del juego; la mascota se une con START.':'')}
 function refresh(o){const m=o.querySelector('#p2menu');if(!m)return;
  m.querySelectorAll('[data-m]').forEach(b=>{const k=b.dataset.m;if(!MODES[k])return;const a=st&&st.o===o&&st.mode==k;b.style.outline=a?'2px solid #5cf':'';b.textContent=MODES[k][0]+' '+MODES[k][1]+(a?' ✔':'')});
+ const lb=m.querySelector('[data-m="llm"]');if(lb){const c=IORAdvisor.cfg();lb.textContent='🤝 Asesor IA: '+(c?c.prov:'no')}
  const sb=m.querySelector('[data-m="smart"]');if(sb)sb.textContent='🧠 Modo inteligente: '+(smart()?'sí':'no');
   const li=m.querySelector('#p2learn');if(li)li.textContent=learnInfo(o);
   const g=o.querySelector('#p2b');if(g)g.style.background=(st&&st.o===o)?'#2fa8ff':''}
@@ -1267,7 +1304,7 @@ function inject(o){
  const m=document.createElement('div');m.id='p2menu';
  m.style.cssText='position:absolute;right:8px;top:calc(3.3rem + env(safe-area-inset-top,0px));z-index:60;width:min(300px,92vw);display:none;flex-direction:column;gap:6px;padding:10px;border-radius:14px;background:rgba(10,20,40,.96);color:#fff;border:2px solid rgba(255,255,255,.35);font:13px system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.5)';
  m.innerHTML='<b>🐾 Mascota — segundo jugador</b>'+Object.keys(MODES).map(k=>'<button class="btn" data-m="'+k+'" tabindex="-1"></button>').join('')+
-  '<button class="btn" data-m="smart" tabindex="-1"></button><button class="btn" data-m="forget" tabindex="-1">🗑 Olvidar lo aprendido</button><small id="p2learn" style="opacity:.9;line-height:1.3"></small><button class="btn" data-m="off" tabindex="-1">⏹ Apagar mascota</button><button class="btn" data-m="start" tabindex="-1">▶ START de la mascota</button>'+
+  '<button class="btn" data-m="smart" tabindex="-1"></button><button class="btn" data-m="llm" tabindex="-1"></button><button class="btn" data-m="forget" tabindex="-1">🗑 Olvidar lo aprendido</button><small id="p2learn" style="opacity:.9;line-height:1.3"></small><button class="btn" data-m="off" tabindex="-1">⏹ Apagar mascota</button><button class="btn" data-m="start" tabindex="-1">▶ START de la mascota</button>'+
   '<label style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">Este juego: <select id="p2pref" tabindex="-1" style="flex:1;min-width:0"><option value="auto">Auto</option><option value="yes">Sí tiene 2 jugadores</option><option value="no">Solo 1 jugador</option></select></label>'+
   '<small id="p2tip" style="opacity:.9;line-height:1.3"></small>'+
   '<small style="opacity:.75;line-height:1.3">La mascota te mira jugar (plataformas): aprende tus saltos que sobreviven, se queda con lo mejor, lo aplica ya mismo y también en niveles nuevos parecidos. Además practica sola cuando le toca.</small>';
@@ -1276,6 +1313,14 @@ function inject(o){
  b.addEventListener('click',()=>{m.style.display=m.style.display=='flex'?'none':'flex';m.querySelector('#p2pref').value=pref(title(o));m.querySelector('#p2tip').textContent=tipOf(o)});
  m.addEventListener('click',e=>{const k=e.target.dataset&&e.target.dataset.m;if(!k)return;
   if(k=='off'){stop();bubble(o,'Vale, me quedo mirando 👀',2500)}
+   else if(k=='llm'){const c=IORAdvisor.cfg();
+    const pv=(prompt('Asesor IA para que la mascota no haga tonterías cuando se atasca.\nEscribe: claude, gemini o deepseek\n(deja vacío para desactivar)',c?c.prov:'')||'').trim().toLowerCase();
+    if(!pv){IORAdvisor.set(null);bubble(o,'Asesor IA desactivado',2200);refresh(o);return}
+    if(!IORAdvisor.DEF[pv]){bubble(o,'Proveedor no válido',2500);return}
+    const key=(prompt('Pega tu API key de '+pv+'.\nSe guarda solo en este navegador y se envía únicamente a '+pv+'.\n(Cualquiera con acceso a este navegador podría verla.)',c&&c.prov==pv?c.key:'')||'').trim();
+    if(!key){return}
+    const md=(prompt('Modelo (vacío = '+IORAdvisor.DEF[pv]+')','')||'').trim();
+    IORAdvisor.set({prov:pv,key,model:md||undefined});bubble(o,'Asesor '+pv+' listo 🤝',2500);if(st&&st.o===o)start(o,st.mode);else refresh(o);return}
    else if(k=='smart'){setSmart(!smart());if(st&&st.o===o)start(o,st.mode);else refresh(o);return}
    else if(k=='forget'){try{localStorage.removeItem(BKEY(title(o)));localStorage.removeItem(GKEY(title(o)))}catch(_){}bubble(o,'He olvidado todo sobre este juego 🧽',2500);if(st&&st.o===o)start(o,st.mode);else refresh(o);return}
   else if(k=='start'){const w=why(o);if(w)start(o,'follow');else tapStart(o)}
