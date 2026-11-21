@@ -1013,4 +1013,117 @@ window.iorP2Profile=(t,r)=>{const p=PROF.find(p=>p.f?p.f((t+' '+(r||'')).toLower
 })();
 
 </script>
+<script id="ior-pad-sug">
+/* ===== Mando (gamepad) para NES y SNES ===== */
+(function(){
+const KS={U:['ArrowUp','ArrowUp',38],D:['ArrowDown','ArrowDown',40],L:['ArrowLeft','ArrowLeft',37],R:['ArrowRight','ArrowRight',39],A:['x','KeyX',88],B:['z','KeyZ',90],X:['s','KeyS',83],Y:['a','KeyA',65],l:['q','KeyQ',81],r:['w','KeyW',87],S:['Enter','Enter',13],E:['Shift','ShiftRight',16]};
+const held={};
+function fire(k,dn){if(!!held[k]===dn)return;held[k]=dn;const [key,code,kc]=KS[k];
+ const ev=new KeyboardEvent(dn?'keydown':'keyup',{key,code,bubbles:true,cancelable:true});
+ ['keyCode','which'].forEach(q=>Object.defineProperty(ev,q,{get:()=>kc}));
+ const c=document.querySelector('#ov canvas');(c||document).dispatchEvent(ev)}
+function release(){for(const k in held)if(held[k])fire(k,false)}
+function poll(){requestAnimationFrame(poll);
+ const ov=document.getElementById('ov'),lab=ov&&ov.p2&&ov.p2.label;
+ if(lab!='NES'&&lab!='SNES')return release();
+ const gp=[...(navigator.getGamepads?navigator.getGamepads():[])].find(p=>p&&p.connected);
+ if(!gp)return release();
+ const b=i=>!!(gp.buttons[i]&&gp.buttons[i].pressed),ax=gp.axes[0]||0,ay=gp.axes[1]||0,snes=lab=='SNES';
+ const w={U:b(12)||ay<-.5,D:b(13)||ay>.5,L:b(14)||ax<-.5,R:b(15)||ax>.5,S:b(9),E:b(8),
+  B:b(0)||(!snes&&b(2)),A:b(1)||(!snes&&b(3)),Y:snes&&b(2),X:snes&&b(3),l:snes&&(b(4)||b(6)),r:snes&&(b(5)||b(7))};
+ for(const k in KS)fire(k,!!w[k])}
+addEventListener('gamepadconnected',()=>{try{toast('🎮 Mando conectado (pulsa un botón)')}catch(_){}});
+addEventListener('gamepaddisconnected',()=>{release();try{toast('🎮 Mando desconectado')}catch(_){}});
+addEventListener('blur',release);
+requestAnimationFrame(poll);
+})();
+
+/* ===== Populares sugeridos (Genesis / NES / SNES): rotan solos y excluyen los que ya están ===== */
+(function(){
+const FOLD={nes:'Nintendo - Nintendo Entertainment System',snes:'Nintendo - Super Nintendo Entertainment System',md:'Sega - Mega Drive - Genesis'},
+ SYSN={nes:'NES',snes:'Super Nintendo',md:'Sega Genesis'},
+ EXTS={nes:['nes'],snes:['smc','sfc','bin'],md:['md','gen','smd','bin']};
+const RAW=[
+['md','Sonic the Hedgehog',1991,'Sonic The Hedgehog (USA, Europe)',['sonic1','sonicthehedgehog']],
+['md','Sonic the Hedgehog 2',1992,'Sonic The Hedgehog 2 (World)',['sonic2','sonicthehedgehog2']],
+['md','Sonic the Hedgehog 3',1994,'Sonic The Hedgehog 3 (USA)',['sonic3','sonicthehedgehog3']],
+['md','Streets of Rage 2',1992,'Streets of Rage 2 (USA)',['sor2']],
+['md','Streets of Rage',1991,'Streets of Rage (World)',[]],
+['md','Golden Axe',1989,'Golden Axe (World)',[]],
+['md','Mortal Kombat II',1994,'Mortal Kombat II (World)',['mk2']],
+['md','Ecco the Dolphin',1992,'Ecco the Dolphin (USA, Europe)',[]],
+['md','Altered Beast',1989,'Altered Beast (USA, Europe)',[]],
+['md','Gunstar Heroes',1993,'Gunstar Heroes (USA)',[]],
+['md','Shinobi III',1993,'Shinobi III - Return of the Ninja Master (USA)',[]],
+['md','Phantasy Star IV',1993,'Phantasy Star IV (USA)',[]],
+['md','Comix Zone',1995,'Comix Zone (USA)',[]],
+['md','Earthworm Jim',1994,'Earthworm Jim (USA)',[]],
+['md','Castlevania: Bloodlines',1994,'Castlevania - Bloodlines (USA)',['bloodlines']],
+['md','Contra: Hard Corps',1994,'Contra - Hard Corps (USA)',['hardcorps']],
+['md','Vectorman',1995,'Vectorman (USA)',[]],
+['nes','Super Mario Bros.',1985,'Super Mario Bros. (World)',['mario1','supermariobros']],
+['nes','Super Mario Bros. 3',1988,'Super Mario Bros. 3 (USA)',['mario3']],
+['nes','The Legend of Zelda',1986,'Legend of Zelda, The (USA)',['zelda1','legendofzelda']],
+['nes','Mega Man 2',1988,'Mega Man 2 (USA)',['megaman2','rockman2']],
+['nes','Contra',1988,'Contra (USA)',[]],
+['nes','Metroid',1986,'Metroid (USA)',[]],
+['nes','Castlevania',1986,'Castlevania (USA)',[]],
+['nes','Kirby\'s Adventure',1993,'Kirby\'s Adventure (USA)',[]],
+['nes','Ninja Gaiden',1988,'Ninja Gaiden (USA)',[]],
+['nes','Double Dragon',1987,'Double Dragon (USA)',[]],
+['nes','Final Fantasy',1990,'Final Fantasy (USA)',[]],
+['nes','Duck Hunt',1984,'Duck Hunt (World)',[]],
+['nes','Excitebike',1985,'Excitebike (Japan, USA)',[]],
+['nes','Tetris',1989,'Tetris (USA)',[]],
+['nes','Teenage Mutant Ninja Turtles II',1990,'Teenage Mutant Ninja Turtles II - The Arcade Game (USA)',['tmnt2']],
+['snes','Super Mario World',1990,'Super Mario World (USA)',['mario world','marioworld']],
+['snes','The Legend of Zelda: A Link to the Past',1991,'Legend of Zelda, The - A Link to the Past (USA)',['alinktothepast','linktothepast']],
+['snes','Super Metroid',1994,'Super Metroid (Japan, USA) (En,Ja)',[]],
+['snes','Donkey Kong Country',1994,'Donkey Kong Country (USA)',[]],
+['snes','Chrono Trigger',1995,'Chrono Trigger (USA)',[]],
+['snes','Super Mario Kart',1992,'Super Mario Kart (USA)',['mariokart']],
+['snes','Street Fighter II Turbo',1993,'Street Fighter II Turbo - Hyper Fighting (USA)',['streetfighter2']],
+['snes','EarthBound',1995,'EarthBound (USA)',[]],
+['snes','Kirby Super Star',1996,'Kirby Super Star (USA)',[]],
+['snes','F-Zero',1990,'F-Zero (USA)',[]],
+['snes','Mega Man X',1993,'Mega Man X (USA)',['megamanx']],
+['snes','Contra III: The Alien Wars',1992,'Contra III - The Alien Wars (USA)',['contra3']],
+['snes','Yoshi\'s Island',1995,'Super Mario World 2 - Yoshi\'s Island (USA)',['yoshisisland']],
+['snes','Final Fantasy VI',1994,'Final Fantasy III (USA)',['finalfantasy6','finalfantasyiii']],
+['snes','Super Mario All-Stars',1993,'Super Mario All-Stars (USA)',['allstars']],
+['snes','Star Fox',1993,'Star Fox (USA)',[]]];
+const norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+const C=RAW.map((r,i)=>({id:'sg'+i,sy:r[0],t:r[1],y:r[2],k:[norm(r[1])].concat((r[4]||[]).map(norm)),img:'https://thumbnails.libretro.com/'+encodeURIComponent(FOLD[r[0]])+'/Named_Boxarts/'+encodeURIComponent(r[3])+'.png'}));
+const inLib=it=>games.some(g=>{const n=norm(g.title);return n.length>2&&it.k.some(k=>n.includes(k)||(n.length>=8&&k.includes(n)))});
+const slot=()=>Math.floor(Date.now()/(3*3600e3));
+const off=()=>{try{return +localStorage.getItem('ior:sgoff')||0}catch(_){return 0}};
+function pick(){let s=(slot()*31+off()*7+11)%2147483646+1;const R=()=>(s=(s*16807)%2147483647)/2147483647,out=[];
+ ['md','nes','snes'].forEach(sy=>{const a=C.filter(x=>x.sy==sy&&!inLib(x));for(let i=a.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[a[i],a[j]]=[a[j],a[i]]}out.push(...a.slice(0,2))});return out}
+const fb=it=>cover({id:it.id,title:it.t,rom:1,sys:SYSN[it.sy]});
+function html(){const L=pick();if(!L.length)return '';
+ return `<div class="panel" id="sgp"><div class="row" style="justify-content:space-between"><h2>🔥 Populares que aún no están</h2><button class="btn" data-a="sgmore">🔄 Otras</button></div><small>Cambian solas cada pocas horas. THE IOR no descarga ROMs: elige tu propia ROM y se añade con su portada.</small><div class="sgrid">${L.map(it=>`<div class="card"><img class="cov" alt="" loading="lazy" data-fb="${e(it.id)}" src="${it.img}"><b>${e(it.t)}</b><span class="pill">${SYSN[it.sy]} · ${it.y}</span><button class="btn go" data-a="sgadd" data-id="${it.id}">➕ Añadir mi ROM</button></div>`).join('')}</div></div>`}
+function refresh(){const p=document.getElementById('sgp'),h=html();if(p)p.outerHTML=h}
+document.head.insertAdjacentHTML('beforeend','<style>.sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.8rem;margin-top:.6rem}</style>');
+const _g=vGames;vGames=function(){const h=_g.apply(this,arguments),k='<h2>'+t('games')+'</h2>';return h.includes(k)?h.replace(k,html()+k):h};
+document.addEventListener('error',ev=>{const i=ev.target;if(!i||i.tagName!='IMG'||!i.dataset.fb)return;const it=C.find(x=>x.id==i.dataset.fb);delete i.dataset.fb;if(it)i.src=fb(it)},true);
+setInterval(()=>{if(S.tab!='games'||document.getElementById('ov'))return;const a=document.activeElement;if(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName))return;const p=document.getElementById('sgp');if(!p)return;if(p.dataset.slot!=String(slot()+':'+off())+':'+games.length){refresh();const q=document.getElementById('sgp');if(q)q.dataset.slot=String(slot()+':'+off())+':'+games.length}},60000);
+document.addEventListener('click',async ev=>{const b=ev.target.closest('[data-a="sgadd"],[data-a="sgmore"]');if(!b)return;
+ if(b.dataset.a=='sgmore'){try{localStorage.setItem('ior:sgoff',off()+1)}catch(_){}return refresh()}
+ if(!me)return toast(t('needlogin'));if(banned())return toast('🚫');
+ const it=C.find(x=>x.id==b.dataset.id);if(!it)return;
+ const inp=document.createElement('input');inp.type='file';inp.accept='.zip,.nes,.smc,.sfc,.md,.gen,.smd,.bin';
+ inp.onchange=async()=>{let f=inp.files[0];if(!f)return;
+  if(/\.zip$/i.test(f.name)){try{toast('📦 Extrayendo del ZIP…');f=await unzipPick(f,'rom')}catch(x){return toast('⚠️ '+x.message)}}
+  const ext=f.name.split('.').pop().toLowerCase();
+  if(!EXTS[it.sy].includes(ext))return toast('⚠️ Esa ROM no parece de '+SYSN[it.sy]+' (.'+EXTS[it.sy].join(' .')+')');
+  if(f.size>4*1024**3)return toast('Máx 4 GB');
+  const g={id:'g'+Date.now(),title:it.t,by:me.name,byE:me.email,rate:'E',sys:SYSN[it.sy],size:f.size,fname:f.name,rom:f.name};
+  toast('⏳ '+fmt(f.size));
+  try{await idbPut(g.id,f)}catch(x){return toast('Sin espacio / No space')}
+  Object.assign(g,await cloudUp(f));
+  try{const r=await fetch(it.img);if(r.ok){const c=await toCover(await r.blob());if(c)g.cover=c}}catch(x){}
+  games.push(g);sv('games',games);toast(t('ok')+' · '+it.t);render()};
+ inp.click()});
+})();
+</script>
 </body></html>
