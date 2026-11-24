@@ -201,7 +201,7 @@ const x=c.getContext('2d'),img=x.createImageData(256,240),b32=new Uint32Array(im
 const ac=new(window.AudioContext||window.webkitAudioContext)(),N=8192,bl=new Float32Array(N),br=new Float32Array(N);let w=0,r=0,run=1,acc=0,last=0;
 const sp=ac.createScriptProcessor(1024,0,2);sp.onaudioprocess=ev=>{const L=ev.outputBuffer.getChannelData(0),R=ev.outputBuffer.getChannelData(1);for(let i=0;i<L.length;i++){if(r!=w){L[i]=bl[r];R[i]=br[r];r=(r+1)&(N-1)}else{L[i]=R[i]=0}}};sp.connect(ac.destination);
 const nes=new jsnes.NES({sampleRate:ac.sampleRate,onFrame:fb=>{for(let i=0;i<61440;i++)b32[i]=0xFF000000|fb[i];x.putImageData(img,0,0)},onAudioSample:(l,rr)=>{bl[w]=l;br[w]=rr;w=(w+1)&(N-1)}});
-let s='';for(let i=0;i<u8.length;i+=8192)s+=String.fromCharCode.apply(null,u8.subarray(i,i+8192));nes.loadROM(s);o.ram=Object.assign(()=>nes.cpu.mem,{n:2048});o.p2={kind:'nes',label:'NES',map:{U:4,D:5,L:6,R:7,A:0,B:1,E:2,S:3},jump:['A'],hit:['B'],set:(b,v)=>{try{v?nes.buttonDown(2,b):nes.buttonUp(2,b)}catch(_){}}};
+let s='';for(let i=0;i<u8.length;i+=8192)s+=String.fromCharCode.apply(null,u8.subarray(i,i+8192));nes.loadROM(s);o.p2={kind:'nes',label:'NES',ram:{n:10240,read:d=>{try{const m=nes.cpu.mem;for(let i=0;i<2048;i++)d[i]=m[i]|0;for(let i=0;i<8192;i++)d[2048+i]=m[0x6000+i]|0;return true}catch(_){return false}}},map:{U:4,D:5,L:6,R:7,A:0,B:1,E:2,S:3},jump:['A'],hit:['B'],set:(b,v)=>{try{v?nes.buttonDown(2,b):nes.buttonUp(2,b)}catch(_){}}};
 const K={ArrowUp:4,ArrowDown:5,ArrowLeft:6,ArrowRight:7,KeyX:0,KeyZ:1,ShiftRight:2,ShiftLeft:2,Enter:3};
 const kd=ev=>{const b=K[ev.code];if(b!=null){ev.preventDefault();ac.resume?.();nes.buttonDown(1,b)}},ku=ev=>{const b=K[ev.code];if(b!=null){ev.preventDefault();nes.buttonUp(1,b)}};
 addEventListener('keydown',kd);addEventListener('keyup',ku);o.addEventListener('pointerdown',()=>ac.resume?.());ac.resume?.();
@@ -226,14 +226,20 @@ const push=()=>{const n=x.md_audio_frames();if(!n||!ac)return;const s=new Int16A
 const pad=()=>{let m=0;for(const p of(navigator.getGamepads?navigator.getGamepads():[])){if(!p)continue;[[0,64],[1,16],[2,32],[3,512],[4,1024],[5,256],[8,2048],[9,128],[12,1],[13,2],[14,4],[15,8]].forEach(([i,b])=>{if(p.buttons[i]&&p.buttons[i].pressed)m|=b});const ax=p.axes[0]||0,ay=p.axes[1]||0;if(ax<-.5)m|=4;if(ax>.5)m|=8;if(ay<-.5)m|=1;if(ay>.5)m|=2;break}return m};
 const kd=ev=>{const b=MDK[ev.code];if(!b)return;ev.preventDefault();ac?.resume?.();held=ev.type=='keydown'?held|b:held&~b};
 addEventListener('keydown',kd);addEventListener('keyup',kd);
-o.p2m=0;o.ram=Object.assign(()=>new Uint8Array(x.memory.buffer,x.md_ram(),65536),{n:65536});o.p2={kind:'md',label:'Genesis',map:{U:1,D:2,L:4,R:8,B:16,C:32,A:64,S:128},jump:['C','B'],hit:['B','A'],set:(b,v)=>{o.p2m=v?(o.p2m|b):(o.p2m&~b)}};const per=1e6/x.md_fps_x1000();const tick=t=>{if(!run)return;acc+=Math.min(t-last,100);last=t;let n=0;while(acc>=per&&n<4){x.md_set_input(0,held|touch|pad());x.md_set_input(1,o.p2m|0);x.md_run_frame();push();acc-=per;n++}if(n)draw();raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);
+o.p2m=0;o.p2={kind:'md',label:'Genesis',ram:{n:65536,read:d=>{try{d.set(new Uint8Array(x.memory.buffer,x.md_ram(),d.length));return true}catch(_){return false}}},map:{U:1,D:2,L:4,R:8,B:16,C:32,A:64,S:128},jump:['C','B'],hit:['B','A'],set:(b,v)=>{o.p2m=v?(o.p2m|b):(o.p2m&~b)}};const per=1e6/x.md_fps_x1000();const tick=t=>{if(!run)return;acc+=Math.min(t-last,100);last=t;let n=0;while(acc>=per&&n<4){x.md_set_input(0,held|touch|pad());x.md_set_input(1,o.p2m|0);x.md_run_frame();push();acc-=per;n++}if(n)draw();raf=requestAnimationFrame(tick)};raf=requestAnimationFrame(tick);
 if(false){const tp=document.createElement('div');tp.style.cssText='position:absolute;left:0;right:0;bottom:calc(10px + env(safe-area-inset-bottom,0px));display:flex;justify-content:space-between;padding:0 12px;pointer-events:none;z-index:2';const mk=(arr)=>{const d=document.createElement('div');d.style.cssText='display:grid;grid-template-columns:repeat(3,56px);gap:6px;pointer-events:auto';arr.forEach(([l,b])=>{const e=document.createElement('div');if(!l){return d.appendChild(e)}e.textContent=l;e.style.cssText='height:56px;border-radius:50%;background:rgba(255,255,255,.28);color:#fff;display:grid;place-items:center;font-weight:700;user-select:none;touch-action:none';const dn=v=>ev=>{ev.preventDefault();ac?.resume?.();touch=v?touch|b:touch&~b;e.style.background=v?'rgba(255,255,255,.6)':'rgba(255,255,255,.28)'};e.onpointerdown=dn(1);e.onpointerup=e.onpointercancel=e.onpointerleave=dn(0);d.appendChild(e)});return d};
 tp.append(mk([[0],['▲',1],[0],['◀',4],[0],['▶',8],[0],['▼',2],[0]]),mk([['A',64],['B',16],['C',32],[0],['START',128],[0]]));o.style.position='fixed';o.appendChild(tp)}
 c.focus();o.stop=()=>{run=0;cancelAnimationFrame(raf);removeEventListener('keydown',kd);removeEventListener('keyup',kd);try{sp&&sp.disconnect();ac&&ac.close()}catch(e){}}}
+/* núcleos libretro (SNES, PCE...): si el emulador deja acceder a su RAM de sistema, se usa; si no, solo pantalla */
+function probeRam(ng){let M=null;try{const em=ng.getEmulator&&ng.getEmulator();M=(em&&em.getEmscriptenModule&&em.getEmscriptenModule())||(ng.getEmscriptenModule&&ng.getEmscriptenModule())}catch(_){}
+if(!M)return null;const pk=nm=>M['_'+nm]||(M.asm&&M.asm[nm])||(M.wasmExports&&M.wasmExports[nm]),gd=pk('retro_get_memory_data'),gs=pk('retro_get_memory_size');
+if(typeof gd!='function'||typeof gs!='function')return null;
+try{const sz=gs(2)>>>0,pt=gd(2)>>>0;if(!sz||!pt||pt+sz>M.HEAPU8.length)return null;const n=Math.min(sz,131072)&~3;return{n,read:d=>{try{d.set(M.HEAPU8.subarray(pt,pt+d.length));return true}catch(_){return false}}}}catch(_){return null}}
 async function playRetro(o,rom,core){const msg=document.createElement('p');msg.style.cssText='color:#fff;padding:1rem;margin:0';msg.textContent='⏳ '+core+'…';o.appendChild(msg);
 try{await loadNG();const u8=rom.data?dataBytes(rom.data):new Uint8Array(await(await getFile(rom)).arrayBuffer());
 const c=document.createElement('canvas');c.style.cssText='flex:1;min-height:0;width:100%;object-fit:contain;image-rendering:pixelated;background:#000;outline:0';o.appendChild(c);
 const ng=await Nostalgist.launch({element:c,core,rom:new File([u8],rom.rom||'game.bin'),retroarchConfig:{video_smooth:false,audio_latency:64}});o.p2={kind:'retro',label:({gambatte:'Game Boy',mgba:'Game Boy Advance',snes9x:'SNES',picodrive:'Sega 32X',mednafen_pce_fast:'PC Engine',stella2014:'Atari 2600',prosystem:'Atari 7800',fceumm:'NES',genesis_plus_gx:'Sega'})[core]||core,no2p:/^(gambatte|mgba)$/.test(core),map:{U:'up',D:'down',L:'left',R:'right',A:'a',B:'b',X:'x',Y:'y',E:'select',S:'start'},jump:['B','A'],hit:['Y','X'],...(({stella2014:{jump:['B'],hit:['B']},prosystem:{jump:['B'],hit:['A']},mednafen_pce_fast:{jump:['B','A'],hit:['A','B']}})[core]||{}),set:(b,v)=>{try{const r=v?ng.pressDown({button:b,player:2}):ng.pressUp({button:b,player:2});r&&r.catch&&r.catch(()=>{})}catch(_){}}};
+try{const rr=probeRam(ng);if(rr)o.p2.ram=rr}catch(_){}
 msg.remove();o.stop=()=>{try{ng.exit()}catch(x){}};}
 catch(x){msg.innerHTML='⚠️ No se pudo cargar el núcleo '+e(core)+'.<br><small>Esta versión publicada bloquea la descarga del emulador. Descarga el archivo .html y ábrelo con doble clic en tu PC (con internet, sin servidor): ahí sí funciona. Detalle: '+e(x&&x.message||x)+'</small>'}}
 function vWalls(){return `<div class="panel"><h2>${t('walls')}</h2>${me?`<label>${t('title')}<input id="wt" maxlength="40"></label><label>${t('wup')}<input type="file" id="wf" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"></label><button class="btn go" data-a="upwall">${t('publish')}</button> `:`<p>${t('needlogin')}</p>`}<button class="btn" data-a="wreset">${t('wreset')}</button></div>${walls.length?`<div class="grid">${walls.map(w=>`<div class="card"><img style="aspect-ratio:16/9;object-fit:cover" alt="${e(w.title)}" src="${e(w.url)}"><b>${e(w.title)}</b><span class="pill">${av(w.by)} ${nm(w.by)}</span><div class="row"><button class="btn go" data-a="usewall" data-id="${e(w.id)}">${t('wapply')}</button>${(isAdmin()||(me&&w.byE==me.email))?`<button class="btn bad" data-a="delwall" data-id="${e(w.id)}">${t('del')}</button>`:''}</div></div>`).join('')}</div>`:`<p>${t('empty')}</p>`}`}
@@ -926,6 +932,7 @@ function ahead(l){let s='';for(let r=0;r<6;r++){const y0=28+r*13;for(let c=0;c<2
 function xedge(s){let n=0;for(let r=0;r<6;r++)for(let c=0;c<23;c++)if(s.charCodeAt(r*24+c)!==s.charCodeAt(r*24+c+1))n++;return n}
 function pdist(a,b){let best=999;for(let sh=-1;sh<=1;sh++){let d=0;for(let r=0;r<6;r++){const o=r*24;for(let c=1;c<23;c++)if(a.charCodeAt(o+c)!==b.charCodeAt(o+c+sh))d++}if(d<best)best=d}return best}
 const better=(q,g,oq,og)=>q>oq||(q==oq&&(g||0)>(og||0)*1.15+.5);
+const same=(a,b)=>!!a&&!!b&&a.d==b.d&&Math.abs((a.j||0)-(b.j||0))<200;
 
 function Brain(store,opt){
  this.store=store&&store.lv?store:{lv:[]};this.opt=opt||{};this.style=this.opt.style||'run';
@@ -933,6 +940,7 @@ function Brain(store,opt){
  this.macro=null;this.lv=null;this.lifeT=0;this.lastMove=0;this.rec=0;this.stallDone=false;this.lives=0;this.msg='';this.dirty=false;
  this.seen=false;this.aa=0;this.m={act:0,bright:0,sx:0};this.recT=0;this.pend=null;this.stallAt=[];
  this.adv=(opt&&opt.advisor)||null;this.ctxf=(opt&&opt.ctx)||null;this.store.pat=this.store.pat||[];this.evs=[];this.dm=null;this.pa=0;this.patCd=0;this.usedPat=[];this.learnN=0;this.sigC=null;this.lastSay=0;this.endEvs=[];this.endPat=[];this.endT=0;this.endL=0;
+ this.cmp=this.store.cmp=this.store.cmp||{agree:0,diff:0,shared:0,dodge:0,fixes:0,gains:0,p1bad:0,petbad:0};this.store.bad=this.store.bad||[];this.fixCd=0;this.blk=false;this.lastL=null;
 }
 const P=Brain.prototype;
 P.lvl=function(sig){
@@ -982,11 +990,12 @@ P.afterDeath=function(){
  if(mb>this.lv.best)this.lv.best=mb;
  if(L.sN>=2||this.wasStalled)this.askAdvisor(mb)};
 P.confirmAll=function(){for(const k in this.lv.trig)if(this.fired[k]&&!this.stalledNear(+k))this.lv.trig[k][1]=1};
-P.endLife=function(t){if(this.onDeath)this.onDeath(t);this.endB=this.maxB;this.endFired=this.fired;this.wasStalled=this.stallDone;this.endEvs=this.evs;this.evs=[];this.dm=null;this.endPat=this.usedPat;this.usedPat=[];this.endT=t;this.endL=this.lifeT};
+P.endLife=function(t){this.endB=this.maxB;this.endFired=this.fired;this.wasStalled=this.stallDone;this.endEvs=this.evs;this.evs=[];this.dm=null;this.endPat=this.usedPat;this.usedPat=[];this.endT=t;this.endL=this.lifeT};
 P.sigNow=function(l){return this.sigC||(this.sigC=ahead(l))};
 P.note=function(m){const n=performance.now();if(n-this.lastSay>4500){this.lastSay=n;this.msg=m}};
 /* aprende UNA jugada vista del jugador: la guarda por posición en este nivel y como patrón visual general (sirve en niveles nuevos). Solo se queda con la mejor. */
 P.learnEv=function(ev,lv,q){
+ if(ev.gain)q+=1;
  const t=lv.trig,k=ev.k,a=ev.a;let n=0,key=null;
  for(const d of[0,-1,1])if(t[k+d]){key=k+d;break}
  const old=key!=null?t[key]:null;
@@ -997,6 +1006,9 @@ P.learnEv=function(ev,lv,q){
   if(np){if(np.a.d==a.d&&Math.abs(np.a.j-a.j)<160){np.q=Math.min(8,np.q+.5);np.a={d:a.d,j:Math.round((np.a.j+a.j)/2),n:Math.round((np.a.n+a.n)/2)};ev.pp=np}
    else if(better(q,ev.g,np.q,np.g)){np.s=ev.sig;np.a=a;np.q=q;np.g=ev.g||0;np.f=0;np.thr=18;ev.pp=np;n++}}
   else{const p={s:ev.sig,a,q,g:ev.g||0,f:0,thr:18};PL.push(p);ev.pp=p;n++;if(PL.length>80){let w=0;for(let i=1;i<PL.length;i++)if(PL[i].q<PL[w].q)w=i;PL.splice(w,1)}}}
+ if(ev.sp&&ev.sa&&!ev.cmpd){ev.cmpd=1; /* misma situación: ¿lo habría hecho igual el bot? */
+  if(same(ev.sa,ev.a)){this.cmp.agree++;ev.sp.q=Math.min(8,ev.sp.q+.5)}
+  else{this.cmp.diff++;if(ev.sp.alt&&same(ev.sp.alt.a,ev.a))ev.sp.alt.q=Math.min(8,ev.sp.alt.q+1);else ev.sp.alt={a:{d:a.d,j:a.j,n:a.n},q:2};n++}}
  if(n){this.dirty=true;this.learnN++;this.note(this.learnN==1?'Te estoy mirando jugar y aprendo 👀':'Anoté lo que hiciste ✍️')}};
 /* al acabar una vida: si pasó el nivel, lo que el jugador hizo vale más (y más aún si fue rápido); si murió, lo cercano a la muerte se descarta */
 P.learnEnd=function(clear){
@@ -1004,32 +1016,68 @@ P.learnEnd=function(clear){
  if(clear&&(!lv.bestT||dur<lv.bestT)){lv.bestT=dur;fast=true}
  const bonus=clear?(fast?3:2):0;
  for(const ev of this.endEvs||[]){
-  if(!ev.done){if(!clear||ev.bad)continue;ev.done=1;this.learnEv(ev,lv,2+bonus)}
+  if(!ev.done){if(!clear)continue;ev.done=1;this.learnEv(ev,lv,2+bonus)}
   else{if(ev.te)ev.te[4]=Math.min(8,ev.te[4]+bonus);if(ev.pp)ev.pp.q=Math.min(8,ev.pp.q+bonus)}}
  const PL=this.store.pat;
- for(const u of this.endPat||[]){const p=u.p;
+ for(const u of this.endPat||[]){const p=u.p;if(u.j&&!clear)continue;
   if(clear)p.q=Math.min(8,p.q+1);
   else if(this.endT-u.t<2200||mb-u.b<=10){p.f++;p.q-=1;p.thr=Math.max(10,p.thr-3);if(p.q<=0||p.f>=3){const i=PL.indexOf(p);if(i>=0)PL.splice(i,1)}}
   else{p.q=Math.min(8,p.q+.5);p.thr=Math.min(26,p.thr+1)}}
  this.dirty=true};
+/* ---- datos de la memoria del juego: daño y puntos en tiempo real ---- */
+P.shadow=function(sig){let bp=null,bs=1e9;for(const p of this.store.pat){if(p.q<1)continue;const d=pdist(sig,p.s);if(d<=p.thr){const sc=d-p.q*1.5;if(sc<bs){bs=sc;bp=p}}}return bp};
+P.otherPat=function(sig,ex){let bp=null,bs=1e9;for(const p of this.store.pat){if(p===ex||p.q<1)continue;const d=pdist(sig,p.s);if(d<=p.thr+4&&!this.isBad(sig,p.a)){const sc=d-p.q*1.5;if(sc<bs){bs=sc;bp=p}}}return bp};
+P.isBad=function(sig,a){const B=this.store.bad;for(let i=0;i<B.length;i++)if(same(B[i].a,a)&&pdist(sig,B[i].s)<=8)return true;return false};
+P.petRecent=function(t){const u=this.usedPat[this.usedPat.length-1];if(u&&!u.j&&t-u.t<=1500)return true;const r=this.trail[this.trail.length-1];return !!(r&&t-r[2]<=1500)};
+/* alguien recibió daño (who: 1 jugador, 2 mascota, 0 dudoso) */
+P.onHit=function(t,who,life){
+ if(!this.lv||this.mode!='play')return;
+ if(who===0){const p1=this.evs.some(e=>!e.bad&&t>=e.t&&t-e.t<=1100)||(this.dm&&t-this.dm.t0<1100),pt=this.petRecent(t);who=p1&&!pt?1:pt&&!p1?2:-1}
+ if(who<0)return;
+ const B=this.store.bad,PL=this.store.pat;
+ if(who===1){ /* error del jugador: no se copia, se recuerda como malo y se compara con lo que haría el bot */
+  let hit=false;
+  for(const ev of this.evs){if(ev.bad||t<ev.t||t-ev.t>1100)continue;hit=true;ev.bad=1;this.cmp.p1bad++;
+   if(ev.done){if(ev.te)ev.te[4]=Math.max(0,ev.te[4]-1);if(ev.pp)ev.pp.q=Math.max(0,ev.pp.q-1)}else ev.done=1;
+   B.push({s:ev.sig,a:ev.a});if(B.length>30)B.shift();
+   const sp=ev.sp;if(sp&&ev.sa){if(same(ev.sa,ev.a)){this.cmp.shared++;sp.q-=1;sp.f++;sp.thr=Math.max(10,sp.thr-3);if(sp.q<=0){const i=PL.indexOf(sp);if(i>=0)PL.splice(i,1)}}else{this.cmp.dodge++;sp.q=Math.min(8,sp.q+.3)}}}
+  const d=this.dm;if(d&&!d.bad&&t-d.t0<1100){d.bad=1;hit=true;B.push({s:d.sig,a:{d:d.rf>d.n*.35?'R':d.lf>d.n*.35?'L':'',j:Math.min(900,t-d.t0),n:400}});if(B.length>30)B.shift()}
+  if(hit){this.dirty=true;this.note('Vi tu error y lo evito 👁️')}
+  return}
+ /* daño a la mascota: se corrige al instante, sin esperar a morir */
+ let u=this.usedPat[this.usedPat.length-1];if(!u||u.j||t-u.t>1500)u=null;
+ const r=this.trail[this.trail.length-1];if(r&&t-r[2]<=1500){const e=this.lv.trig[r[0]];if(e){if(e[3])e[4]=Math.max(.5,(e[4]||1)-.5);e[1]=0}}
+ let alt=null;const sg=this.lastL?ahead(this.lastL):null;
+ if(u){const p=u.p;u.j=1;p.f++;p.q-=1;p.thr=Math.max(10,p.thr-3);this.cmp.petbad++;
+  if(p.q<=0||p.f>=3){const i=PL.indexOf(p);if(i>=0)PL.splice(i,1)}
+  alt=p.alt?p.alt.a:null;if(!alt&&u.sg){const o=this.otherPat(u.sg,p);if(o)alt=o.a}}
+ else if(sg){const o=this.shadow(sg);if(o)alt=o.a}
+ if(t>=this.fixCd){this.fixCd=t+700;this.macro=alt?this.makeMacro(9,t,alt):this.makeMacro([5,3,2][rnd(3)],t);this.pend=null;this.cmp.fixes++;this.dirty=true;
+  this.note(alt?'¡Auch! Copio lo que tú hiciste aquí ⚡':'¡Auch! Cambio de jugada al instante ⚡')}};
+/* alguien ganó puntos: lo que acababa de hacer vale más */
+P.onGain=function(t,who){
+ if(!this.lv||this.mode!='play')return;this.cmp.gains++;
+ if(who!==1){const u=this.usedPat[this.usedPat.length-1];if(u&&!u.j&&t-u.t<=1800)u.p.q=Math.min(8,u.p.q+.5);
+  const r=this.trail[this.trail.length-1];if(r&&t-r[2]<=1800){const e=this.lv.trig[r[0]];if(e&&e[3])e[4]=Math.min(8,(e[4]||1)+.3)}}
+ if(who!==2){for(const ev of this.evs){if(ev.bad||t<ev.t||t-ev.t>1800)continue;if(ev.done){if(ev.te)ev.te[4]=Math.min(8,ev.te[4]+.5);if(ev.pp)ev.pp.q=Math.min(8,ev.pp.q+.5)}else ev.gain=1}}};
 /* observa al jugador 1 en tiempo real: cada salto/acción suya es una jugada candidata; se aprende cuando sobrevive 8 casillas */
 P.watch=function(t,b,l,p1){
  if(p1){const A=!!p1.A;
-  if(A&&!this.pa)this.dm={t0:t,k:b,sig:this.sigNow(l),rf:0,lf:0,n:0};
+  if(A&&!this.pa){const sg=this.sigNow(l);this.dm={t0:t,k:b,sig:sg,sp:this.shadow(sg),rf:0,lf:0,n:0}}
   const d=this.dm;
   if(d){d.n++;if(p1.R)d.rf++;else if(p1.L)d.lf++;
    if((!A&&this.pa)||t-d.t0>1200){const j=Math.min(900,t-d.t0);
-    if(this.evs.length<60)this.evs.push({k:d.k,t:d.t0,sig:d.sig,a:{d:d.rf>d.n*.35?'R':d.lf>d.n*.35?'L':'',j:Math.max(j,90),n:Math.max(j+220,320)},done:0,g:null});
+    if(this.evs.length<60&&!d.bad)this.evs.push({k:d.k,t:d.t0,sig:d.sig,a:{d:d.rf>d.n*.35?'R':d.lf>d.n*.35?'L':'',j:Math.max(j,90),n:Math.max(j+220,320)},sp:d.sp,sa:d.sp?{d:d.sp.a.d,j:d.sp.a.j}:null,done:0,g:null});
     this.dm=null}}
   this.pa=A}
  for(const ev of this.evs){
   if(ev.g==null&&t>=ev.t+700){ev.g=b-ev.k;if(ev.te)ev.te[5]=ev.g;if(ev.pp)ev.pp.g=ev.g}
-  if(!ev.done&&!ev.bad&&b>=ev.k+8){ev.done=1;this.learnEv(ev,this.lv,2)}}};
+  if(!ev.done&&b>=ev.k+8){ev.done=1;this.learnEv(ev,this.lv,2)}}};
 P.enterLevel=function(l,t){
  const nl=this.lvl(signature(l)),first=!this.lv;
  if(!first&&this.endB!=null){
   if(nl===this.lv){ /* mismo nivel → murió */
-   this.lives++;this.lv.tries++;this.maxB=this.endB;this.fired=this.endFired||{};
+   this.lives++;this.lv.tries++;if(this.opt.onDeath)try{this.opt.onDeath(this.endT)}catch(_){}this.maxB=this.endB;this.fired=this.endFired||{};
    this.learnEnd(false);if(!this.wasStalled)this.afterDeath();
    this.say('Intento '+(this.lv.tries+1)+': ya sé dónde fallé 🧠')}
   else{this.maxB=this.endB;this.fired=this.endFired||{};this.confirmAll();this.learnEnd(true);this.lv.clear++;this.say(this.learnN?'¡Nivel superado! 🎉 Guardé lo que mejor funcionó':'¡Nivel superado! 🎉')}
@@ -1047,7 +1095,7 @@ P.out=function(t,w){
 P.step=function(t,l,p1){
  const w={};this.sigC=null;
  if(!this.prev){this.prev=l;this.settleAt=t+500;return w}
- const m=metrics(this.prev,l);this.prev=l;this.m=m;this.aa=this.aa*.9+m.act*.1;if(m.bright>=10)this.seen=true;
+ const m=metrics(this.prev,l);this.prev=l;this.lastL=l;this.m=m;this.aa=this.aa*.9+m.act*.1;if(m.bright>=10)this.seen=true;
  if(m.bright<10){if(this.mode!='dark'){this.mode='dark';this.endLife(t)}return w}
  if(this.mode=='dark'){this.mode='settle';this.settleAt=t+500;return w}
  if(this.mode=='settle'){if(t<this.settleAt)return w;this.enterLevel(l,t);this.mode='play'}
@@ -1067,42 +1115,101 @@ P.step=function(t,l,p1){
  if(this.style=='run'&&still<700&&this.store.pat.length&&t>=this.patCd&&(!this.macro||t>=this.macro.end||this.macro.a==0)){
   const sg=this.sigNow(l);let bp=null,bs=1e9;
   for(const p of this.store.pat){if(p.q<1)continue;const d=pdist(sg,p.s);if(d<=p.thr){const sc=d-p.q*1.5;if(sc<bs){bs=sc;bp=p}}}
-  if(bp){this.macro=this.makeMacro(9,t,bp.a);this.patCd=t+bp.a.n+200;this.usedPat.push({p:bp,t,b});if(this.usedPat.length>25)this.usedPat.shift();this.note('Esto ya lo vi: ¡sé qué hacer! 💡')}}
+  let ua=bp&&bp.alt&&(bp.f>=1||bp.alt.q>=4)?bp.alt.a:bp&&bp.a;if(bp&&this.isBad(sg,ua))ua=bp.alt&&!this.isBad(sg,bp.alt.a)?bp.alt.a:null;
+  if(bp&&ua){this.macro=this.makeMacro(9,t,ua);this.patCd=t+ua.n+200;this.usedPat.push({p:bp,t,b,sg});if(this.usedPat.length>25)this.usedPat.shift();this.note('Esto ya lo vi: ¡sé qué hacer! 💡')}}
  /* atasco: no avanza el scroll aunque la pantalla se mueve */
- if(!young&&still>900&&this.aa>.02){
+ if(!young&&((still>900&&this.aa>.02)||(this.blk&&still>500))){
   if(!this.stallDone){this.stallDone=true;this.stallAt.push(b);for(const k in trig)if(this.fired[k]&&+k<=b&&+k>=b-10)trig[k][1]=0;this.afterDeath();this.say('Me atasqué en la casilla '+b+': pruebo otra cosa 🤔')}
   if(!this.macro||t>=this.macro.end){this.rec=(this.rec+1)%4;this.macro=this.makeMacro(this.rec==1?5:this.rec==2?4:3,t);if(still>3200&&this.rec%2==0)this.macro={a:0,dir:'',jEnd:0,end:t+500}}
   return this.out(t,w)}
  if(still<400)this.stallDone=false;
  if(!this.macro||t>=this.macro.end)this.macro=this.makeMacro(0,t);
  return this.out(t,w)};
-
-/* --- RAM: la mascota vigila la memoria del juego a 5 Hz (barato) y descubre sola qué variables son vidas/vida (bajan justo cuando se muere) --- */
-function RamEye(store,get){const s=store.ram=store.ram||{v:{}};this.v=s.v;this.get=get;this.N=0;this.prev=null;this.cur=null;this.chg=null;this.n=0;this.rd=[];this.cd=0;this.onHurt=null;this.dirty=false}
-RamEye.prototype.known=function(){let n=0;for(const k in this.v)if(this.v[k]>=2)n++;return n};
-RamEye.prototype.sample=function(t){
- let m;try{m=this.get()}catch(_){return}
- if(!m||!m.length)return;
- if(!this.prev){const N=Math.min(m.length,this.get.n||65536);this.N=N;this.prev=new Uint8Array(N);this.cur=new Uint8Array(N);this.chg=new Uint8Array(N);for(let i=0;i<N;i++)this.prev[i]=m[i]&255;return}
- const N=this.N,c=this.cur,p=this.prev,g=this.chg,v=this.v,dec=(++this.n&31)==0;let hurt=0;
- for(let i=0;i<N;i++){const a=m[i]&255,b=p[i];c[i]=a;
-  if(a!==b){if(g[i]<250)g[i]+=4;
-   if(a<b&&b-a<=8&&b<=99&&g[i]<24){if(v[i]>=2)hurt=1;else{this.rd.push([i,t]);if(this.rd.length>48)this.rd.shift()}}}
-  if(dec)g[i]>>=1}
- this.prev=c;this.cur=p;
- if(hurt&&t>this.cd){this.cd=t+1200;if(this.onHurt)this.onHurt(t)}};
-RamEye.prototype.death=function(t){
- const v=this.v;for(const e of this.rd)if(t-e[1]<3500)v[e[0]]=(v[e[0]]||0)+1;this.rd=[];
- const ks=Object.keys(v);if(ks.length>16){ks.sort((a,b)=>v[a]-v[b]);for(let i=0;i<ks.length-16;i++)delete v[ks[i]]}this.dirty=true};
-/* daño recibido ahora mismo: lo que el jugador acaba de hacer no se copia, y lo que el bot acaba de probar se corrige al instante */
-P.hurt=function(t){
- if(this.mode!='play'||!this.lv)return;
- for(const ev of this.evs)if(!ev.done&&t-ev.t<1600)ev.bad=1;
- let tr=null;for(let i=this.trail.length-1;i>=0;i--){if(t-this.trail[i][2]<1500){tr=this.trail[i];break}}
- if(tr&&this.lv.trig[tr[0]]){this.mutate(tr[0]);this.note('Me dieron daño ahí: lo corrijo al momento 🔧');this.dirty=true}
- for(const u of this.usedPat)if(t-u.t<1500){u.p.q-=.5;u.p.thr=Math.max(10,u.p.thr-1)}};
-return{Brain,RamEye,metrics,signature,W,H,ACTS};
+return{Brain,metrics,signature,W,H,ACTS};
 })();
+
+/* ===== IORMem: la mascota lee la RAM del juego (vidas, energía, puntos, posiciones) sin cargar el emulador ===== */
+const IORMem=(function(){
+const KP='ior_p2_mem_';
+const idle=f=>{try{if(window.requestIdleCallback)requestIdleCallback(f,{timeout:5000});else setTimeout(f,300)}catch(_){setTimeout(f,300)}};
+const s8=(a,i)=>{if(a[i]<255)a[i]++},s16=(a,i)=>{if(a[i]<65535)a[i]++};
+function Mem(ram,key){
+ const n=this.n=Math.min(ram.n|0,131072)&~3;this.rd=ram.read;this.key=key;
+ this.cur=new Uint8Array(n);this.prv=new Uint8Array(n);this.c32=new Uint32Array(this.cur.buffer);this.p32=new Uint32Array(this.prv.buffer);
+ this.dropT=new Int32Array(n).fill(-1e9);this.dsc=new Uint8Array(n);this.dtot=new Uint16Array(n);this.utot=new Uint16Array(n);
+ this.c1=new Uint16Array(n);this.c2=new Uint16Array(n);this.role=new Uint8Array(n);this.owner=new Uint8Array(n);this.v1=new Uint8Array(n);this.v2=new Uint8Array(n);
+ this.ev={h1:0,h2:0,h0:0,g1:0,g2:0,g0:0,life:0,any:0};
+ this.base=0;this.lastT=0;this.ns=0;this.nd=0;this.next=0;this.per0=this.per=n>16384?160:100;this.cost=0;this.fail=0;this.off=0;
+ this.an=0;this.a1h=0;this.a2h=0;this.a1a=0;this.a2a=0;this.s1=0;this.s2=0;
+ this.x1=-1;this.x2=-1;this.stride=0;this.blocked=false;this.blkN=0;this.cL=0;this.cH=0;this.cG=0;this.dirty=0;this.lastSave=0;
+ this.load();this.classify()}
+const M=Mem.prototype;
+/* se llama cada tick (barato): cuenta cuánto se movió/actuó cada jugador desde la última lectura */
+M.note=function(p1,pc){this.an++;const h1=p1.L||p1.R,h2=pc.L||pc.R;if(h1)this.a1h++;if(h2)this.a2h++;
+ if(h1||p1.U||p1.D||p1.A)this.a1a++;let a=h2||pc.U||pc.D;if(!a)for(const k in pc)if(pc[k]){a=1;break}if(a)this.a2a++};
+/* lectura periódica: solo examina las palabras de 32 bits que cambiaron */
+M.sample=function(t){
+ const q0=performance.now(),e=this.ev;e.h1=e.h2=e.h0=e.g1=e.g2=e.g0=e.life=e.any=0;this.next=t+this.per;
+ let ok=false;try{ok=this.rd(this.cur)}catch(_){}
+ if(!ok){if(++this.fail>8)this.off=1;return null}
+ const an=this.an||1,f1h=this.a1h/an,f2h=this.a2h/an,f1a=this.a1a/an,f2a=this.a2a/an;
+ this.an=this.a1h=this.a2h=this.a1a=this.a2a=0;
+ if(!this.base||t-this.lastT>1500){this.prv.set(this.cur);this.base=1;this.lastT=t;return null}
+ this.lastT=t;this.ns++;this.s1=this.s1*.5+f1a;this.s2=this.s2*.5+f2a;
+ const only1=f1h>.5&&f2h<.1,only2=f2h>.5&&f1h<.1,cur=this.cur,prv=this.prv,c32=this.c32,p32=this.p32,W=this.n>>2,dropT=this.dropT,role=this.role;
+ for(let w=0;w<W;w++){if(c32[w]===p32[w])continue;const b=w<<2;
+  for(let i=b;i<b+4;i++){const v=cur[i],p=prv[i];if(v===p)continue;const d=v-p;
+   if(d<0){if(d>=-16){s16(this.dtot,i);dropT[i]=t;const r=role[i];if(r===1||r===2)this.dmg(i,r)}}
+   else{s16(this.utot,i);if(role[i]===3)this.gain(i)}
+   if(d>=-8&&d<=8){if(only1)s16(this.c1,i);else if(only2)s16(this.c2,i)}}}
+ const xchg=this.x2>=0&&cur[this.x2]!==prv[this.x2];
+ prv.set(cur);
+ if(this.x2>=0&&f2h>.6&&!xchg){if(this.blkN<20)this.blkN++}else this.blkN=0;this.blocked=this.blkN>=4;
+ if(this.ns%25===0)this.locate();
+ if(this.ns%80===0)this.classify();
+ const c=performance.now()-q0;this.cost=this.cost?this.cost*.8+c*.2:c;
+ if(this.cost>9||(this.cost>2.5&&this.per>=1000))this.off=1;
+ else if(this.cost>2.5){this.per=Math.min(1000,this.per*2);this.cost=1}
+ else if(this.cost<.5&&this.per>this.per0&&this.ns%100===0)this.per=Math.max(this.per0,this.per*.7);
+ return e.any?e:null};
+M.who=function(i){let w=this.owner[i];const a1=this.s1>.5&&this.s2<.15,a2=this.s2>.5&&this.s1<.15;
+ if(a1)s8(this.v1,i);else if(a2)s8(this.v2,i);
+ if(!w){const x=this.v1[i],y=this.v2[i];if(x>=2&&x>=y*2)w=this.owner[i]=1;else if(y>=2&&y>=x*2)w=this.owner[i]=2}
+ return w||(a1?1:a2?2:0)};
+M.dmg=function(i,r){const e=this.ev,w=this.who(i);if(w===1)e.h1++;else if(w===2)e.h2++;else e.h0++;if(r===1)e.life=1;e.any=1};
+M.gain=function(i){const e=this.ev,w=this.who(i);if(w===1)e.g1++;else if(w===2)e.g2++;else e.g0++;e.any=1};
+/* el cerebro avisa de una muerte (pantalla negra en el mismo nivel): todo lo que bajó justo antes es candidato a «vidas/energía» */
+M.death=function(t){const n=this.n,dT=this.dropT,dsc=this.dsc;for(let i=0;i<n;i++){const dt=t-dT[i];if(dt>=-300&&dt<=2200)s8(dsc,i)}this.nd++;this.dirty=1;this.classify()};
+/* Un byte es «vida» si baja casi solo al morir; «energía» si además baja en golpes sueltos; «puntos» si sube a ratos y casi nunca baja.
+   Los contadores de tiempo, animaciones y banderas se descartan porque cambian mucho más que las muertes. */
+M.classify=function(){const n=this.n,dsc=this.dsc,dt=this.dtot,ut=this.utot,role=this.role,ns=this.ns;role.fill(0);const L=[],G=[];
+ for(let i=0;i<n;i++){const s=dsc[i],d=dt[i],u=ut[i];
+  if(s>=2&&d<=s*8+4&&u<=s*3+3)L.push(i);
+  else if(ns>=40&&u>=5&&u*8<=ns&&d<=(u>>1)+2)G.push(i)}
+ L.sort((a,b)=>dsc[b]-dsc[a]);G.sort((a,b)=>ut[b]-ut[a]);let cl=0,ch=0,cg=0;
+ for(const i of L.slice(0,24)){if(dt[i]<=dsc[i]+1){role[i]=1;cl++}else if(dsc[i]>=3){role[i]=2;ch++}}
+ for(const i of G.slice(0,24))if(!role[i]){role[i]=3;cg++}
+ this.cL=cl;this.cH=ch;this.cG=cg};
+/* posiciones: el byte que cambia solo cuando se mueve el jugador 1 (o solo la mascota); con la distancia entre ambos se emparejan sus variables */
+M.locate=function(){const n=this.n,c1=this.c1,c2=this.c2;let b1=-1,s1=7,b2=-1,s2=7;
+ for(let i=0;i<n;i++){const a=c1[i],b=c2[i];if(a>b){const d=a-b;if(d>s1&&a>=b*2+4){s1=d;b1=i}}else if(b>a){const d=b-a;if(d>s2&&b>=a*2+4){s2=d;b2=i}}}
+ if(b1>=0)this.x1=b1;if(b2>=0)this.x2=b2;
+ if(this.x1>=0&&this.x2>=0&&this.x1!==this.x2){const s=this.stride=this.x2-this.x1,ow=this.owner,rl=this.role;
+  for(let i=0;i<n;i++){const r=rl[i];if(r!==1&&r!==2)continue;const o=ow[i];
+   if(o===1){const j=i+s;if(j>=0&&j<n&&(rl[j]===1||rl[j]===2)&&!ow[j])ow[j]=2}
+   else if(o===2){const j=i-s;if(j>=0&&j<n&&(rl[j]===1||rl[j]===2)&&!ow[j])ow[j]=1}}}};
+M.stats=function(){return{life:this.cL,hp:this.cH,gain:this.cG,nd:this.nd,x1:this.x1,x2:this.x2}};
+M.save=function(force){if(!this.dirty&&!force)return;const now=performance.now();if(!force&&now-this.lastSave<15000)return;this.lastSave=now;this.dirty=0;
+ const wr=()=>{try{const n=this.n,a=[];for(let i=0;i<n;i++){const s=this.dsc[i];if(s>0&&this.dtot[i]<=s*8+4||this.role[i]===3)a.push(i)}
+  a.sort((x,y)=>this.dsc[y]-this.dsc[x]||this.utot[y]-this.utot[x]);
+  localStorage.setItem(KP+this.key,JSON.stringify({n,nd:this.nd,s:this.stats(),x:[this.x1,this.x2],d:a.slice(0,300).map(i=>[i,this.dsc[i],this.dtot[i],this.utot[i],this.v1[i],this.v2[i],this.owner[i]])}))}catch(_){}};
+ force?wr():idle(wr)};
+M.load=function(){try{const j=JSON.parse(localStorage.getItem(KP+this.key)||'null');if(!j||j.n!==this.n||!Array.isArray(j.d))return;
+ for(const r of j.d){const i=r[0];if(i>=0&&i<this.n){this.dsc[i]=r[1];this.dtot[i]=r[2];this.utot[i]=r[3];this.v1[i]=r[4];this.v2[i]=r[5];this.owner[i]=r[6]}}
+ this.nd=j.nd|0;if(j.x){if(j.x[0]>=0&&j.x[0]<this.n){this.x1=j.x[0];this.c1[this.x1]=40}if(j.x[1]>=0&&j.x[1]<this.n){this.x2=j.x[1];this.c2[this.x2]=40}}}catch(_){}};
+return{create:(ram,key)=>(ram&&typeof ram.read=='function'&&ram.n>=64&&key)?new Mem(ram,key):null,idle,
+ peek:key=>{try{const j=JSON.parse(localStorage.getItem(KP+key)||'null');if(j&&j.s)return j.s}catch(_){}return{life:0,hp:0,gain:0,nd:0,x1:-1,x2:-1}},
+ forget:key=>{try{localStorage.removeItem(KP+key)}catch(_){}}}})();
 
 /* ---------- MASCOTA COMO 2.º JUGADOR ---------- */
 (function(){
@@ -1171,7 +1278,7 @@ function bubble(o,m,ms){const h=hud(o);h.style.display='flex';h.querySelector('#
 function hop(o){const i=o.querySelector('#p2i');if(!i)return;i.style.transform='translateY(-9px)';setTimeout(()=>{i.style.transform=''},130)}
 /* arranque / parada */
 function release(){if(!st)return;const d=st.o.p2;if(d){for(const b in st.cur)if(st.cur[b]&&d.map[b]!=null)d.set(d.map[b],false)}}
-function stop(){if(!st)return;clearInterval(st.timer);release();saveStore();const o=st.o;st=null;hist=[];if(o.isConnected){const h=o.querySelector('#p2h');if(h)h.style.display='none';refresh(o)}}
+function stop(){if(!st)return;clearInterval(st.timer);release();saveStore(true);const o=st.o;st=null;hist=[];if(o.isConnected){const h=o.querySelector('#p2h');if(h)h.style.display='none';refresh(o)}}
 function tapStart(o){const d=o.p2;if(!d||d.map.S==null)return;d.set(d.map.S,true);setTimeout(()=>d.set(d.map.S,false),130)}
 /* ---- ojos, memoria y guía ---- */
 const nz=x=>String(x||'').toLowerCase().replace(/[^a-z0-9]/g,'');
@@ -1188,13 +1295,22 @@ const smart=()=>{try{return localStorage.getItem('ior_p2_smart')!='0'}catch(_){r
 const setSmart=v=>{try{localStorage.setItem('ior_p2_smart',v?'1':'0')}catch(_){}};
 const BKEY=t=>'ior_p2_brain_'+nz(t);
 function loadStore(t){try{const j=JSON.parse(localStorage.getItem(BKEY(t))||'null');if(j&&j.lv)return j}catch(_){}return{lv:[]}}
-function saveStore(){if(!st||!st.brain)return;try{localStorage.setItem(BKEY(title(st.o)),JSON.stringify(st.brain.store))}catch(_){}}
-function learnInfo(o){
+function saveStore(sync){if(!st||!st.brain)return;const k=BKEY(title(st.o)),b=st.brain.store,wr=()=>{try{localStorage.setItem(k,JSON.stringify(b))}catch(_){}};sync?wr():IORMem.idle(wr);if(st.mem)st.mem.save(!!sync)}
+addEventListener('pagehide',()=>{try{if(st)saveStore(true)}catch(_){}});
+function learnInfo(o){const ex=ramInfo(o);return learnInfo0(o)+ex}
+function ramInfo(o){
+ const t=title(o);if(!t||!o.p2||st&&st.o===o&&st.blind)return '';let x='';
+ const sto=(st&&st.o===o&&st.brain)?st.brain.store:loadStore(t),c=sto.cmp;
+ if(o.p2.ram){const m=(st&&st.o===o&&st.mem)?st.mem:null,r=m?m.stats():IORMem.peek(nz(t));x+=' 🔬 Memoria del juego: '+r.life+' vidas · '+r.hp+' energía · '+r.gain+' puntos'+(r.x2>=0?' · sé dónde estoy':'')+(m&&m.off?' (apagada por rendimiento)':'')+'.'}
+ else x+=' 👁 Esta consola no me deja leer su memoria: aprendo solo mirando la pantalla.';
+ if(c&&(c.agree+c.diff+c.p1bad+c.petbad)>0)x+=' 🤝 Coincido contigo en '+(c.agree+c.diff?Math.round(100*c.agree/(c.agree+c.diff)):0)+'% de las situaciones · '+c.p1bad+' errores tuyos vistos · '+c.fixes+' correcciones al instante.';
+ return x}
+function learnInfo0(o){
  const t=title(o);if(!t)return '';
  if(st&&st.o===o&&st.blind)return '🙈 No puedo ver la pantalla de este juego: juego a ciegas.';
  const sto=(st&&st.o===o&&st.brain)?st.brain.store:loadStore(t);
- let n=0,tr=0,dm=0;sto.lv.forEach(l=>{for(const k in l.trig){n++;if(l.trig[k][3])dm++}tr+=l.tries||0});const pt=(sto.pat||[]).length,rv=sto.ram?Object.keys(sto.ram.v).filter(k=>sto.ram.v[k]>=2).length:0;
- return n||tr||pt?'🧠 Aprendido: '+dm+' jugadas copiadas de ti · '+pt+' patrones para niveles nuevos · '+(n-dm)+' trucos propios · '+tr+' vidas de práctica'+(rv?' · '+rv+' variables de vida/daño detectadas en la memoria del juego.':'.'):'🧠 Aún no he practicado este juego.'}
+ let n=0,tr=0,dm=0;sto.lv.forEach(l=>{for(const k in l.trig){n++;if(l.trig[k][3])dm++}tr+=l.tries||0});const pt=(sto.pat||[]).length;
+ return n||tr||pt?'🧠 Aprendido: '+dm+' jugadas copiadas de ti · '+pt+' patrones para niveles nuevos · '+(n-dm)+' trucos propios · '+tr+' vidas de práctica.':'🧠 Aún no he practicado este juego.'}
 /* guía: la mascota «lee» la ficha del juego en Wikipedia para saber su género y cómo se juega a dos */
 const GKEY=t=>'ior_p2_guide_'+nz(t);
 function parseGuide(txt){
@@ -1235,9 +1351,9 @@ function adopt(prof,mode,first){
  Object.assign(st,{prof,eff,J:btns(prof,'jump',d),H:btns(prof,'hit',d),Rn:btnsRun(prof,d),style:(prof&&prof.style)||'run',fwd:(prof&&prof.fwd)||(eff=='turn'?.8:.55)});
  st.jb=st.J.length?pick(st.J):null;st.hb=st.H.length?pick(st.H):null;
  const sc=st.style=='run'||st.style=='shoot'||(st.style=='fight'&&!(prof&&prof.mode=='vs'));
- st.brain=(smart()&&eff!='cpu'&&title(o)&&((eff=='compete'||eff=='turn')?sc:st.style=='run'))?new IORBrain.Brain(loadStore(title(o)),{style:st.style,advisor:IORAdvisor.ask,ctx:()=>({juego:title(o),genero:st.style,modo:st.eff,ficha:(st.gsum||'').slice(0,600),acciones:'d=R/L/quieto; salto_ms=ms con el botón de salto pulsado'})}):null;
- st.blind=0;st.rc={};st.pz={};st.ram=null;st.ramAt=0;st.ramC=0;st.bC=0;st.sk=0;st.lw=null;
- if(st.brain&&o.ram){const re=new IORBrain.RamEye(st.brain.store,o.ram),br=st.brain;re.onHurt=t=>br.hurt(t);br.onDeath=t=>{re.death(t);br.dirty=true};st.ram=re}
+ st.brain=(smart()&&eff!='cpu'&&title(o)&&((eff=='compete'||eff=='turn')?sc:st.style=='run'))?new IORBrain.Brain(loadStore(title(o)),{style:st.style,onDeath:tt=>{if(st&&st.mem)st.mem.death(tt)},advisor:IORAdvisor.ask,ctx:()=>({juego:title(o),genero:st.style,modo:st.eff,ficha:(st.gsum||'').slice(0,600),acciones:'d=R/L/quieto; salto_ms=ms con el botón de salto pulsado'})}):null;
+ st.blind=0;st.rc={};st.pz={};
+ if(!st.mem&&st.brain&&d.ram){try{st.mem=IORMem.create(d.ram,nz(title(o)))}catch(_){st.mem=null}}
  hud(o).style.display='flex';hud(o).querySelector('#p2m').textContent='P2 '+(eff=='turn'?'🔁':MODES[mode][0])+(st.brain?' 🧠':'');
  if(first){const l=note||pick(LINES[eff]||LINES[mode]);bubble(o,l,note?5500:3500);try{iorVoice.say(l)}catch(_){}}
  else if(note)bubble(o,note,4500);
@@ -1248,7 +1364,7 @@ function start(o,mode){
  stop();
  const pr=profile(o),pf=pref(title(o));
  let prof=(pf=='yes'&&pr&&pr.mode=='single')?null:pr;
- st={o,mode,eff:mode,prof:null,cur:{},timer:0,dir:'',dirUntil:0,jumpAt:0,jumpUntil:0,atkAt:0,atkUntil:0,chat:performance.now()+9000,t0:performance.now(),brain:null,blind:0,rc:{},pz:{},J:[],H:[],Rn:[],style:'run',fwd:.55};
+ st={o,mode,eff:mode,prof:null,cur:{},timer:0,dir:'',dirUntil:0,jumpAt:0,jumpUntil:0,atkAt:0,atkUntil:0,chat:performance.now()+9000,t0:performance.now(),brain:null,mem:null,bk:0,sk:1,lw:null,bc:0,blind:0,rc:{},pz:{},J:[],H:[],Rn:[],style:'run',fwd:.55};
  if(!prof){try{const c=localStorage.getItem(GKEY(title(o)));if(c){const g=JSON.parse(c);st.gsum=g.sum||'';if(!(g.mode=='single'&&pf!='yes'))prof={name:'guía',mode:g.mode=='single'?'coop':g.mode,style:g.style,tip:'📖 Leí su ficha en Wikipedia: '+g.txt+'.'}}}catch(_){}}
  adopt(prof,mode,true);
  if(!(prof&&prof.join===false))setTimeout(()=>{if(st&&st.o===o)tapStart(o)},700);   /* se une al juego con START del 2.º mando */
@@ -1267,7 +1383,7 @@ function brainTick(t,drive){
  if(bw.J&&st.J.length)w[st.J[0]]=1;
  if(bw.H&&st.H.length)w[st.H[0]]=1;
  if(br.msg){bubble(st.o,br.msg,3200);br.msg='';refresh(st.o)}
- if(br.dirty||t-(st.sv||0)>15000){br.dirty=false;st.sv=t;(window.requestIdleCallback||setTimeout)(saveStore)}
+ if((br.dirty&&t-(st.sv||0)>4000)||t-(st.sv||0)>15000){br.dirty=false;st.sv=t;saveStore()}
  return drive?w:null}
 /* carreras: acelera, esquiva con giros cortos y, si el juego se queda quieto (choque), marcha atrás */
 function raceStep(t,w,holdRun){
@@ -1290,17 +1406,20 @@ function puzzleStep(t,w){
  if(z.drop&&dt>700)w.D=1}
 function apply(w){const d=st.o.p2;for(const b in d.map){const v=!!w[b];if(!!st.cur[b]!==v){st.cur[b]=v;d.set(d.map[b],v)}}
  if(st.jb&&w[st.jb]&&!st.jh){st.jh=1;hop(st.o)}if(!st.jb||!w[st.jb])st.jh=0}
+function memRoute(ev,t){const br=st.brain;if(!ev.any||!br)return;
+ if(ev.h1)br.onHit(t,1,ev.life);if(ev.h2)br.onHit(t,2,ev.life);if(ev.h0)br.onHit(t,0,ev.life);
+ if(ev.g1)br.onGain(t,1);if(ev.g2)br.onGain(t,2);if(ev.g0)br.onGain(t,0)}
 function tick(){
  if(!st)return;const o=st.o;if(!o.isConnected||!o.p2){stop();return}
- if(document.hidden)return;
+ if(document.hidden)return;  /* pestaña en segundo plano: el emulador también se pausa */
  const t=performance.now(),cur=readP1();hist.push([t,cur]);while(hist.length>80||(hist.length&&t-hist[0][0]>900))hist.shift();
  const w={},e=st.eff;
   st.p1=cur;
-  if(st.ram&&t>=st.ramAt){const c0=performance.now();st.ram.sample(t);st.ramC=st.ramC*.8+(performance.now()-c0)*.2;st.ramAt=t+(st.ramC>2?1000:200);if(st.ramC>6)st.ram=null}
-  if(st.brain&&!st.blind){
-   /* si el cerebro tarda, se ejecuta cada 2.º/3.er ciclo y se mantiene la última orden: el juego nunca se frena por la mascota */
-   if(st.bC>4&&(st.sk=(st.sk+1)%(st.bC>10?3:2))){if(st.lw){apply(st.lw);return}}
-   else{const c0=performance.now(),bw=brainTick(t,e=='compete'||e=='turn');st.bC=st.bC*.9+(performance.now()-c0)*.1;st.lw=bw;if(bw){apply(bw);return}}}
+  if(st.mem&&st.brain&&!st.mem.off){st.mem.note(cur,st.cur);if(t>=st.mem.next){const ev=st.mem.sample(t);if(ev)memRoute(ev,t);st.brain.blk=st.mem.blocked}}
+  if(st.brain&&!st.blind){ /* la visión es lo más caro: si tarda, se hace 1 de cada 2 ciclos y se repite la última orden */
+   let bw=st.lw;
+   if(++st.bk>=st.sk){st.bk=0;const b0=performance.now();bw=brainTick(t,e=='compete'||e=='turn');const c=performance.now()-b0;st.bc=st.bc?st.bc*.9+c*.1:c;st.sk=st.bc>5?2:1;st.lw=bw}
+   if(bw){apply(bw);return}}
  const holdRun=()=>st.Rn.forEach(b=>w[b]=1);
  const jump=()=>{if(t>st.jumpAt){st.jb=st.J.length?pick(st.J):null;st.jumpUntil=t+(Math.random()<.3?430:110);st.jumpAt=t+300+Math.random()*900}if(st.jb&&t<st.jumpUntil)w[st.jb]=1};
  const hit=(gap)=>{if(t>st.atkAt){st.hb=st.H.length?pick(st.H):null;st.atkUntil=t+90;st.atkAt=t+gap[0]+Math.random()*gap[1]}if(st.hb&&t<st.atkUntil)w[st.hb]=1};
@@ -1339,7 +1458,7 @@ function inject(o){
   '<button class="btn" data-m="smart" tabindex="-1"></button><button class="btn" data-m="llm" tabindex="-1"></button><button class="btn" data-m="forget" tabindex="-1">🗑 Olvidar lo aprendido</button><small id="p2learn" style="opacity:.9;line-height:1.3"></small><button class="btn" data-m="off" tabindex="-1">⏹ Apagar mascota</button><button class="btn" data-m="start" tabindex="-1">▶ START de la mascota</button>'+
   '<label style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">Este juego: <select id="p2pref" tabindex="-1" style="flex:1;min-width:0"><option value="auto">Auto</option><option value="yes">Sí tiene 2 jugadores</option><option value="no">Solo 1 jugador</option></select></label>'+
   '<small id="p2tip" style="opacity:.9;line-height:1.3"></small>'+
-  '<small style="opacity:.75;line-height:1.3">La mascota te mira jugar (plataformas): aprende tus saltos que sobreviven, se queda con lo mejor, lo aplica ya mismo y también en niveles nuevos parecidos. Además practica sola cuando le toca.</small>';
+  '<small style="opacity:.75;line-height:1.3">La mascota te mira jugar (plataformas): aprende tus saltos que sobreviven, se queda con lo mejor, lo aplica ya mismo y también en niveles nuevos parecidos. Además practica sola cuando le toca. En NES y Genesis lee la memoria del juego (vidas, energía, puntos): compara lo que haces tú con lo que haría ella en la misma situación y se corrige al instante.</small>';
  o.appendChild(m);refresh(o);
  b.addEventListener('mousedown',e=>e.preventDefault());m.addEventListener('mousedown',e=>{if(e.target.tagName!='SELECT')e.preventDefault()});
  b.addEventListener('click',()=>{m.style.display=m.style.display=='flex'?'none':'flex';m.querySelector('#p2pref').value=pref(title(o));m.querySelector('#p2tip').textContent=tipOf(o)});
@@ -1354,7 +1473,7 @@ function inject(o){
     const md=(prompt('Modelo (vacío = '+IORAdvisor.DEF[pv]+')','')||'').trim();
     IORAdvisor.set({prov:pv,key,model:md||undefined});bubble(o,'Asesor '+pv+' listo 🤝',2500);if(st&&st.o===o)start(o,st.mode);else refresh(o);return}
    else if(k=='smart'){setSmart(!smart());if(st&&st.o===o)start(o,st.mode);else refresh(o);return}
-   else if(k=='forget'){try{localStorage.removeItem(BKEY(title(o)));localStorage.removeItem(GKEY(title(o)))}catch(_){}bubble(o,'He olvidado todo sobre este juego 🧽',2500);if(st&&st.o===o)start(o,st.mode);else refresh(o);return}
+   else if(k=='forget'){try{localStorage.removeItem(BKEY(title(o)));localStorage.removeItem(GKEY(title(o)));IORMem.forget(nz(title(o)))}catch(_){}if(st&&st.o===o){st.brain=null;st.mem=null}bubble(o,'He olvidado todo sobre este juego 🧽',2500);if(st&&st.o===o)start(o,st.mode);else refresh(o);return}
   else if(k=='start'){const w=why(o);if(w)start(o,'follow');else tapStart(o)}
   else{start(o,k);if(st&&st.o===o)m.style.display='none'}
   try{o.querySelector('canvas')?.focus()}catch(_){}});
