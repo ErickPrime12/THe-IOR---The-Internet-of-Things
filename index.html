@@ -73,6 +73,16 @@ nav button{font-family:var(--f-hud);font-size:.8rem;letter-spacing:.05em;-webkit
 .btn{font-family:var(--f-hud);font-size:.76rem;text-transform:uppercase;letter-spacing:.04em;font-weight:400}
 .pill,small,.adm{font-family:var(--f-px);font-size:1.05rem;letter-spacing:.02em}
 </style>
+<style id="ior-v2-css">
+:root{--vh:1vh}html{-webkit-text-size-adjust:100%}body{overflow-x:hidden}main img,main video{max-width:100%}
+#online{cursor:pointer}#ior-onl{position:fixed;top:calc(env(safe-area-inset-top,0px) + 54px);right:10px;z-index:60;max-width:min(260px,90vw);max-height:60vh;overflow:auto;background:var(--glass2);color:var(--ink);border:1px solid var(--edge);border-radius:16px;padding:.7rem .9rem;box-shadow:var(--shadow);backdrop-filter:blur(12px)}#ior-onl ul{margin:.3rem 0;padding-left:0;list-style:none}
+#ov{height:calc(var(--vh)*100)}
+@media(min-width:700px) and (max-width:1100px){main{max-width:96vw}}
+@media(min-width:1500px){main{max-width:1400px}}
+@media(min-width:2000px){main{max-width:1800px}.grid{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}}
+@media(max-width:600px){header{padding:.4rem .6rem}.logo{font-size:1.4rem}nav{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}nav button{flex:0 0 auto;font-size:1rem;padding:.3rem .7rem}.grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.6rem}main{padding:.7rem .5rem 2rem}.panel{padding:.8rem;border-radius:16px}}
+@media(orientation:landscape) and (max-height:520px){header{position:static}.hero h1{font-size:1.6rem}main{padding-top:.5rem}}
+</style>
 </head><body>
 <canvas id="wall"></canvas><canvas id="bg"></canvas>
 <header>
@@ -1689,5 +1699,55 @@ if(typeof playRetro=='function'){const _p=playRetro;playRetro=async function(o,r
 addEventListener('pagehide',close);
 }catch(x){console.warn('online2p',x)}
 })();
+</script>
+<script id="ior-v2">
+(function(){try{
+const R=document.documentElement,YC='ior_yt',PK='ior:pop_ts',PS=6*36e5;
+/* 1) Pantalla adaptable: celular (vertical/horizontal), tablet, laptop, escritorio, ultra-ancho */
+const fit=()=>{const w=innerWidth,h=innerHeight;R.style.setProperty('--vh',h*.01+'px');R.dataset.screen=w<600?'phone':w<1024?'tablet':w<1500?'laptop':w<2000?'desktop':'ultra';R.dataset.orient=w>h?'landscape':'portrait'};
+fit();addEventListener('resize',fit);let ft;addEventListener('orientationchange',()=>{fit();clearTimeout(ft);ft=setTimeout(()=>{fit();dispatchEvent(new Event('resize'))},350)});
+const myName=()=>(typeof me!=='undefined'&&me&&me.name)||'invitado';
+const waitDB=f=>{const i=setInterval(()=>{if(typeof DB!=='undefined'&&DB&&DB.collection){clearInterval(i);f()}},1000)};
+/* 2) Usuarios conectados */
+let ONL=[];
+const nowOn=()=>{const n=Date.now(),m=new Set();let g=0;ONL.forEach(x=>{if(n-(x.u||0)>90000)return;let k='';try{k=JSON.parse(x.j).n||''}catch(_){}k?m.add(k):g++});return{names:[...m],g}};
+const onlHtml=()=>{const{names,g}=nowOn();return '<b>🟢 En línea ahora</b>'+(names.length?'<ul>'+names.map(n=>'<li>👤 '+e(n)+'</li>').join('')+'</ul>':'<br>')+'<small>'+(g?g+' invitado'+(g>1?'s':'')+' sin sesión':names.length?'':'Nadie más por ahora')+'</small>'};
+addEventListener('click',ev=>{const p=document.getElementById('ior-onl');if(ev.target.closest('#online')){if(p)p.remove();else{const d=document.createElement('div');d.id='ior-onl';d.innerHTML=onlHtml();document.body.appendChild(d)}}else if(p&&!ev.target.closest('#ior-onl'))p.remove()});
+setInterval(()=>{const p=document.getElementById('ior-onl');if(p)p.innerHTML=onlHtml()},8000);
+/* 3) Links de YouTube compartidos online */
+let YR=[],yLoaded=0;
+const ykey=(s,it)=>s+':'+(it.pl||(it.parts&&it.parts[0]&&it.parts[0].id)||'');
+GETV.videos=()=>videos.filter(v=>v.url||v.yt);SETV.videos=v=>videos=v.concat(videos.filter(x=>!x.url&&!x.yt)).sort(byAt);
+function ySync(){const col=DB.collection(YC),keys=new Set(),ch={};
+YR.forEach(r=>{if(r.id=='pop')return;keys.add(r.id);let o;try{o=JSON.parse(r.j)}catch(_){return}const s=o.s;if(s!='mov'&&s!='vid')return;const L=ytLd(s);if(!L.some(x=>ykey(s,x)==r.id)){L.unshift({title:o.title,thumb:o.thumb,...(o.pl?{pl:o.pl}:{}),parts:o.parts||[],m:1,sh:1,by:o.by});ch[s]=1;ytSv(s)}});
+['mov','vid'].forEach(s=>{const L=ytLd(s);for(let i=L.length-1;i>=0;i--){const x=L[i];if(!x.m)continue;if(!x.sh){x.sh=1;x.shAt=Date.now();x.by=myName();ytSv(s);col.doc(ykey(s,x)).set({j:JSON.stringify({s,title:x.title,thumb:x.thumb,pl:x.pl,parts:x.parts,by:x.by})}).catch(()=>{})}else if(yLoaded&&!keys.has(ykey(s,x))&&Date.now()-(x.shAt||0)>6e4){L.splice(i,1);ytSv(s);ch[s]=1}}});
+Object.keys(ch).forEach(s=>ytFill(s))}
+document.addEventListener('click',ev=>{const b=ev.target.closest('[data-a="ytdel"]');if(!b)return;const s=b.dataset.s,it=ytLd(s)[+b.dataset.i];if(!it||!it.sh)return;if(it.by!=myName()&&!(typeof isAdmin=='function'&&isAdmin())){ev.stopPropagation();ev.preventDefault();return toast('Solo quien lo subió o un admin puede quitarlo')}try{DB.collection(YC).doc(ykey(s,it)).delete()}catch(_){}},true);
+/* 4) Videos populares automáticos (cada 6 h; se comparten para quien no tenga clave) */
+let POP=[];try{POP=JSON.parse(localStorage.getItem('ior:pop')||'[]')}catch(_){}
+const rc=()=>((navigator.language||'').split('-')[1]||'US').toUpperCase(),okT=x=>!(typeof bad=='function'&&bad(x));
+async function popFetch(){let it=[];const k=YK();
+if(k)try{const j=await(await fetch('https://www.googleapis.com/youtube/v3/videos?'+new URLSearchParams({part:'snippet,status',chart:'mostPopular',regionCode:rc(),maxResults:'16',key:k}))).json();it=(j.items||[]).filter(i=>i.status&&i.status.embeddable).map(i=>({id:i.id,title:dec(i.snippet.title),thumb:(i.snippet.thumbnails.medium||i.snippet.thumbnails.default).url,ch:i.snippet.channelTitle}))}catch(_){}
+if(!it.length)for(const h of['https://pipedapi.kavin.rocks','https://api.piped.private.coffee'])try{const j=await(await fetch(h+'/trending?region='+rc())).json();if(Array.isArray(j)&&j.length){it=j.slice(0,16).map(v=>{const id=(v.url||'').split('v=')[1];return{id,title:v.title,thumb:'https://i.ytimg.com/vi/'+id+'/mqdefault.jpg',ch:v.uploaderName}});break}}catch(_){}
+return it.filter(x=>x.id&&x.title&&okT(x.title))}
+const popFill=()=>{const h=document.getElementById('ior-pop');if(h)h.outerHTML=popHtml()};
+async function popRefresh(force){let ts=+localStorage.getItem(PK)||0;const sh=YR.find(r=>r.id=='pop');if(sh)try{const o=JSON.parse(sh.j);if(o.t>ts&&o.items&&o.items.length){POP=o.items;ts=o.t;localStorage.setItem('ior:pop',JSON.stringify(POP));localStorage.setItem(PK,ts);popFill()}}catch(_){}
+if(!force&&Date.now()-ts<PS)return;const it=await popFetch();if(!it.length)return;POP=it;try{localStorage.setItem('ior:pop',JSON.stringify(it));localStorage.setItem(PK,Date.now())}catch(_){}popFill();try{DB.collection(YC).doc('pop').set({j:JSON.stringify({t:Date.now(),items:it})})}catch(_){}}
+const popHtml=()=>`<div class="panel" id="ior-pop"><h2>🔥 Populares en YouTube</h2><small>Se actualizan solos cada pocas horas${POP.length?'':' · aún sin datos: pega tu clave API en el panel de YouTube o espera a que otro usuario las cargue'}</small><div class="grid">${POP.map((v,i)=>`<div class="card"><img class="cov" style="aspect-ratio:16/9;object-fit:cover" alt="" src="${e(v.thumb)}"><b>${e(v.title)}</b><small>${e(v.ch||'')}</small><div class="row"><button class="btn go" data-ip="${i}">${t('play')}</button></div></div>`).join('')}</div></div>`;
+const _vv=vVideos;vVideos=function(){return S.vid?_vv.apply(this,arguments):popHtml()+_vv.apply(this,arguments)};
+document.addEventListener('click',ev=>{const b=ev.target.closest('[data-ip]');if(!b)return;const v=POP[+b.dataset.ip];if(v)ytOpen({title:v.title,thumb:v.thumb,parts:[{id:v.id,title:v.title,n:0}]})});
+/* 5) Recomendaciones de juegos GBA */
+const GBA=[['Pokémon Esmeralda','RPG','La aventura más completa de Hoenn'],['Pokémon Rojo Fuego','RPG','Remake de Kanto con ritmo moderno'],['The Legend of Zelda: The Minish Cap','Aventura','Mazmorras ingeniosas y mundo diminuto'],['Metroid Fusion','Acción','Exploración tensa con ambiente de terror'],['Metroid: Zero Mission','Acción','Remake perfecto del Metroid original'],['Advance Wars','Estrategia','Tácticas por turnos muy adictivas'],['Fire Emblem: The Sacred Stones','Estrategia','Tácticas con historia y personajes memorables'],['Golden Sun','RPG','Enigmas elementales y gráficos brillantes'],['Mario Kart: Super Circuit','Carreras','Incluye todas las pistas de SNES'],['Super Mario Advance 4: Super Mario Bros. 3','Plataformas','Clásico de NES con extras'],['Mario & Luigi: Superstar Saga','RPG','Humor y combates con tiempos'],['Kirby & the Amazing Mirror','Aventura','Mapa abierto estilo metroidvania'],['Castlevania: Aria of Sorrow','Acción','Metroidvania con sistema de almas'],['Wario Land 4','Plataformas','Ritmo frenético y arte colorido'],['Sonic Advance 2','Plataformas','Velocidad pura estilo Sonic'],['Sonic Battle','Peleas','Pelea de arena con todo el elenco'],['Final Fantasy Tactics Advance','Estrategia','Clanes, misiones y jobs'],['Mega Man Zero','Acción','Acción exigente y banda sonora'],['Drill Dozer','Plataformas','Joya poco conocida con un taladro gigante'],['WarioWare, Inc.: Mega Microgame$','Minijuegos','Microjuegos rapidísimos']];
+let gOff=0;const gHave=n=>games.find(g=>g.title&&g.title.toLowerCase().replace(/[^a-z0-9]/g,'').includes(n.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,10)));
+const gbaHtml=()=>{const mine=games.filter(g=>g.sys=='Game Boy Advance'),d=Math.floor(Date.now()/864e5),pk=[];for(let i=0;i<6;i++)pk.push(GBA[(d*3+gOff*6+i)%GBA.length]);
+return `<div class="panel" id="ior-gba"><h2>👾 Recomendados Game Boy Advance</h2><small>${mine.length?'Ya tienes '+mine.length+' juego(s) GBA en IOR. ':''}Sugerencias del día; si ya está subido, se juega directo.</small><div class="grid">${pk.map(([n,g,w])=>{const h=gHave(n);return `<div class="card"><b>${e(n)}</b><span class="pill">${e(g)}</span><small>${e(w)}</small><div class="row">${h?`<button class="btn go" data-a="play" data-id="${h.id}">${t('play')}</button>`:'<small>📤 Súbelo en Subir (.gba)</small>'}</div></div>`}).join('')}</div><div class="row"><button class="btn" data-gb="1">🔄 Otras sugerencias</button></div></div>`};
+const _vg=vGames;vGames=function(){return _vg.apply(this,arguments)+gbaHtml()};
+document.addEventListener('click',ev=>{if(ev.target.closest('[data-gb]')){gOff++;const h=document.getElementById('ior-gba');if(h)h.outerHTML=gbaHtml()}});
+/* arranque */
+waitDB(()=>{try{DB.collection('ior_online').onSnapshot(s=>{ONL=s.docs.map(d=>d.data())},()=>{})}catch(_){}
+try{DB.collection(YC).onSnapshot(s=>{YR=s.docs.map(d=>{const x=d.data();return{id:x.id||d.id,j:x.j}});yLoaded=1;ySync();popRefresh()},()=>{})}catch(_){}
+try{push('videos')}catch(_){}setInterval(()=>{try{ySync()}catch(_){}},8000)});
+setTimeout(()=>popRefresh(),5000);setInterval(()=>popRefresh(),30*6e4);
+}catch(x){console.warn('ior-v2',x)}})();
 </script>
 </body></html>
